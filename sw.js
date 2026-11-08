@@ -1,7 +1,7 @@
 // Offline support. Try the network first so updates show right away, but if it is
 // offline or takes longer than TIMEOUT (weak signal at a raid), use the saved copy.
 // Bump VERSION when adding or renaming files.
-const VERSION = "v6";
+const VERSION = "v7";
 const TIMEOUT = 2500;
 const FILES = [
   "./", "index.html", "type-chart.html", "boss.html", "dual-type.html", "search.html", "my-pokemon.html", "invest.html",

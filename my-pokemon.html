@@ -43,10 +43,11 @@
     <div class="card" id="summary"></div>
 
     <div class="card">
-      <h2>Import from Poke Genie</h2>
+      <h2>Import from Poke Genie or Calcy IV</h2>
       <ol class="steps">
-        <li>In Poke Genie, open your scan history and export it as a CSV file.</li>
-        <li>Tap a button below and pick that file.</li>
+        <li><b>Poke Genie:</b> open your scan history and export it as a CSV file.<br>
+            <b>Calcy IV:</b> open the scan history (⋮ → History) and export it as a CSV file.</li>
+        <li>Tap a button below and pick that file. Either app's file works, and you can mix them.</li>
       </ol>
       <label class="file"><input type="file" id="csvReplace" accept=".csv,text/csv"><span class="big" role="button">⬆ Import full export</span></label>
       <p class="muted" style="font-size:13px;margin:6px 0 12px">Replaces your saved list with everything in the file.</p>
@@ -101,7 +102,7 @@ const n = x => x.toLocaleString();
 function drawSummary() {
   const data = myStore.load();
   if (!data) {
-    $("summary").innerHTML = `<h2>No Pokémon yet</h2><p>Import your Poke Genie export below. Boss Lookup will then
+    $("summary").innerHTML = `<h2>No Pokémon yet</h2><p>Import your Poke Genie or Calcy IV export below. Boss Lookup will then
       have a <b>My Pokémon</b> tab that ranks the attackers you actually own.</p>`;
     return;
   }
@@ -140,13 +141,13 @@ async function doImport(e, merge) {
   const f = e.target.files[0]; if (!f) return;
   $("importMsg").innerHTML = "Reading…";
   try {
-    const { records, report } = importPokeGenie(await f.text());
+    const { records, report, app } = importAny(await f.text());
     if (merge && myStore.load()) {
       const r = myStore.merge(records, report).report;
-      $("importMsg").innerHTML = `<span class="ok">Updated ${n(r.updated)} and added ${n(r.added)} Pokémon.</span>`;
+      $("importMsg").innerHTML = `<span class="ok">${app}: updated ${n(r.updated)} and added ${n(r.added)} Pokémon.</span>`;
     } else {
       myStore.save(records, report);
-      $("importMsg").innerHTML = `<span class="ok">Imported ${n(report.kept)} Pokémon.</span>`;
+      $("importMsg").innerHTML = `<span class="ok">Imported ${n(report.kept)} Pokémon from ${app}.</span>`;
     }
   } catch (err) {
     $("importMsg").innerHTML = `<span class="err">${esc(err.message)}</span>`;

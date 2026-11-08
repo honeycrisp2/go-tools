@@ -72,6 +72,75 @@ function importPokeGenie(text) {
       scan: r["Scan Date"] || "", cat: r["Catch Date"] || "",
     });
   }
+  return buildRecords(parsed, report);
+}
+
+/* ---------- Calcy IV export ---------- */
+// Calcy puts the form in the name ("Meowth Alolan", "Pumpkaboo XL"), so convert everything
+// to Poke Genie's conventions and the same clean-up applies to both.
+const CALCY_FORM = { alolan: "Alola", galarian: "Galar", hisui: "Hisui", hisuian: "Hisui", paldean: "Paldea",
+                     xs: "Small", s: "Small", m: "Average", l: "Large", xl: "Super", "♂": "Male", "♀": "Female" };
+const pad2 = x => String(x).padStart(2, "0");
+const isCalcy = row => "Nr" in row && Object.keys(row).some(h => /ATT IV$/.test(h));
+
+function importCalcy(text) {
+  const rows = parseCSV(text);
+  if (!rows.length || !isCalcy(rows[0]) || !("Scan date" in rows[0]))
+    throw new Error("This doesn't look like a Calcy IV export (missing columns like “Nr”, “ØATT IV”, “Scan date”).");
+  const col = suffix => Object.keys(rows[0]).find(h => h.endsWith(suffix));
+  const cA = col("ATT IV"), cD = col("DEF IV"), cS = col("HP IV");
+  const blank = v => !v || v === "-" || v === "?";
+
+  const report = { rows: rows.length, unmatched: 0, partial: 0, merged: 0, unknownIv: 0, noMoves: 0 };
+  const parsed = [];
+  for (const r of rows) {
+    // "Ancestor?" rows are the pre-evolution snapshot Calcy saves when you evolve; Mega rows are temporary.
+    if (r["Ancestor?"] === "1" || !blank(r["Temp Evo"])) { report.merged++; continue; }
+    const dex = +r["Nr"];
+    const c = BASE_BY_DEX.get(dex);
+    if (!c) { report.unmatched++; continue; }
+    // Split "Thundurus Incarnate Shadow" into species + form words.
+    const words = r["Name"].split(" ").filter(Boolean);
+    const species = nrm(MONS[c[0]][0].replace(/\s*\(.*\)/, ""));
+    let k = 1;
+    for (let i = 1; i <= words.length; i++) if (nrm(words.slice(0, i).join("")) === species) { k = i; break; }
+    let rest = words.slice(k);
+    let sh = { 2: 1, 3: 2 }[r["ShadowForm"]] || 0;
+    if (rest.includes("Shadow")) sh = 1;
+    if (rest.includes("Purified")) sh = 2;
+    rest = rest.filter(w => w !== "Shadow" && w !== "Purified");
+    const form = rest.map(w => CALCY_FORM[w.toLowerCase()] || w).join(" ");
+    const mi = matchMon(dex, form);
+    if (mi < 0) { report.unmatched++; continue; }
+
+    const ivs = [cA, cD, cS].map(h => r[h]);
+    const iv = ivs.some(v => blank(v) || isNaN(+v)) ? null : ivs.map(v => Math.round(+v));
+    // Scan date "9/7/26 11:59:30" → "2026-09-07 11:59"; catch date "2016-07-20" → "7/20/2016".
+    const sm = (r["Scan date"] || "").match(/(\d+)\/(\d+)\/(\d+)\s+(\d+):(\d+)/);
+    if (sm && +sm[1] > 12) [sm[1], sm[2]] = [sm[2], sm[1]];   // day-first phones
+    const scan = sm ? `${sm[3].length === 2 ? "20" + sm[3] : sm[3]}-${pad2(sm[1])}-${pad2(sm[2])} ${pad2(sm[4])}:${sm[5]}` : "";
+    const cm = (r["Catch Date"] || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const cat = cm ? `${+cm[2]}/${+cm[3]}/${cm[1]}` : "";
+    const mv = v => (blank(v) ? "" : v);
+    parsed.push({
+      mon: MONS[mi][0], dex, form, g: /^[♂♀]$/.test(r["Gender"]) ? r["Gender"] : "",
+      sh, lu: +r["Lucky?"] || 0, iv,
+      lv: +r["Level"] || parseFloat(r["possibleLevels"]) || 20,
+      cp: +r["CP"] || 0, hp: +r["HP"] || 0,
+      fast: mv(r["Fast move"]), ch: [mv(r["Special move"]), mv(r["Special move 2"])].filter(Boolean),
+      scan, cat,
+    });
+  }
+  return buildRecords(parsed, report);
+}
+
+// Pick the right reader from the file's columns.
+function importAny(text) {
+  const head = parseCSV(text.split(/\r?\n/, 2).join("\n") + "\n")[0] || {};
+  return isCalcy(head) ? { app: "Calcy IV", ...importCalcy(text) } : { app: "Poke Genie", ...importPokeGenie(text) };
+}
+
+function buildRecords(parsed, report) {
   parsed.sort((a, b) => b.scan.localeCompare(a.scan));   // newest scan first
 
   // Scans without IVs that match an appraised scan (same CP and HP) are the same Pokémon.
@@ -143,7 +212,13 @@ const myStore = {
     for (const n of newRecords) {
       const hit = (byGroup.get(groupKey(n)) || []).find(i => !drop.has(i) &&
         (old[i].k === n.k || !old[i].cat || !n.cat));
-      if (hit !== undefined) { drop.add(hit); updated++; }
+      if (hit !== undefined) {
+        drop.add(hit); updated++;
+        // Keep what the older scan knew if the new one missed it (Calcy often skips moves).
+        const o = old[hit];
+        if (!n.fast && !n.ch.length) { n.fast = o.fast; n.ch = o.ch; }
+        if (!n.cat && o.cat) { n.cat = o.cat; n.k = o.k; }
+      }
     }
     const records = [...old.filter((_, i) => !drop.has(i)), ...newRecords];
     const prev = this.load()?.report || {};
@@ -180,7 +255,13 @@ function toHiddenMap(v) {
 }
 const scanTime = r => new Date(r.scan.replace(" ", "T")).getTime() || 0;
 // Pokémon identity without the catch date (used to match rescans).
-const groupKey = r => r.k.startsWith("u|") ? r.k : r.k.split("|").slice(0, 6).join("|");
+// Poke Genie writes the base form as either "" or "Normal", so treat those as the same.
+const groupKey = r => {
+  if (r.k.startsWith("u|")) return r.k;
+  const p = r.k.split("|").slice(0, 6);
+  if (p[1] === "Normal") p[1] = "";
+  return p.join("|");
+};
 
 // Records currently in play: not marked gone (unless rescanned since), and scanned recently enough.
 function activeRecords() {
