@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1c1f25">
+<title>Boss Lookup · GO Tools</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .results { list-style: none; margin: 0; padding: 0; }
+  .results button {
+    display: flex; width: 100%; align-items: center; gap: 8px; text-align: left;
+    font: inherit; font-size: 16px; color: var(--text);
+    background: var(--surface); border: 0; border-bottom: 1px solid var(--border);
+    padding: 12px; cursor: pointer;
+  }
+  .results .dex { color: var(--muted); font-size: 12px; width: 38px; flex: none; }
+  .results .name { flex: 1; }
+  .results .pill { font-size: 11px; }
+  .card-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
+  .card-h h2 { margin: 0; font-size: 22px; }
+  .card-types { display: flex; gap: 4px; margin-bottom: 4px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 14px; }
+  .recents { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; scrollbar-width: none; }
+  .recents:empty { display: none; }
+  .recents button.chip { white-space: nowrap; }
+  .empty { padding: 24px 12px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body class="app">
+  <header class="topbar">
+    <a class="back" href="./" aria-label="Back to tools">‹</a>
+    <h1>Boss Lookup</h1>
+  </header>
+
+  <main class="app-main" id="main"></main>
+
+  <div class="bottombar">
+    <div class="recents" id="recents"></div>
+    <input type="search" id="q" placeholder="Pokémon name or dex #" autocomplete="off" enterkeyhint="search">
+  </div>
+
+<script src="types.js"></script>
+<script src="pokemon.js"></script>
+<script>
+const main = document.getElementById("main");
+const q = document.getElementById("q");
+const recentsEl = document.getElementById("recents");
+const norm = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const INDEX = POKEMON.map(p => ({ p, key: norm(p[0]) }));
+let recents = store.get("boss-recents", []);
+
+function typesOf(p) { return p.slice(2); }
+
+function search(text) {
+  const n = norm(text);
+  if (!n) return [];
+  if (/^\d+$/.test(n)) return INDEX.filter(x => x.p[1] === +n).map(x => x.p);
+  const starts = [], words = [], inside = [];
+  for (const x of INDEX) {
+    if (x.key.startsWith(n)) starts.push(x.p);
+    else if (x.p[0].toLowerCase().split(/[\s(]+/).some(w => norm(w).startsWith(n))) words.push(x.p);
+    else if (x.key.includes(n)) inside.push(x.p);
+  }
+  return [...starts, ...words, ...inside].slice(0, 40);
+}
+
+function showList(list) {
+  if (!q.value.trim()) {
+    main.innerHTML = `<div class="empty">Type a raid boss's name below.<br>Shadow and Mega versions are listed by name where their types differ.</div>`;
+    return;
+  }
+  if (!list.length) { main.innerHTML = `<div class="empty">No Pokémon match “${q.value.replace(/</g, "&lt;")}”.</div>`; return; }
+  main.innerHTML = `<ul class="results">` + list.map((p, i) =>
+    `<li><button data-i="${POKEMON.indexOf(p)}"><span class="dex">#${p[1]}</span><span class="name">${p[0]}</span>${typesOf(p).map(t => pill(t)).join(" ")}</button></li>`
+  ).join("") + `</ul>`;
+}
+
+function showPokemon(p) {
+  const t = typesOf(p);
+  main.innerHTML = `<div class="page">
+    <div class="card-h"><h2>${p[0]}</h2><span class="muted">#${p[1]}</span></div>
+    <div class="card-types">${t.map(x => pill(x)).join("")}</div>
+    ${matchupHTML(t)}
+    <p class="note">Bring attackers with moves in the top row. Shadow Pokémon have the same types as their normal form.</p>
+  </div>`;
+  main.scrollTop = 0;
+  recents = [p[0], ...recents.filter(n => n !== p[0])].slice(0, 10);
+  store.set("boss-recents", recents);
+  drawRecents();
+}
+
+function drawRecents() {
+  recentsEl.innerHTML = recents.map(n => `<button class="chip" data-name="${n}">${n}</button>`).join("");
+}
+
+q.addEventListener("input", () => showList(search(q.value)));
+q.addEventListener("keydown", e => {
+  if (e.key === "Enter") { const r = search(q.value); if (r.length) { showPokemon(r[0]); q.blur(); } }
+});
+main.addEventListener("click", e => {
+  const b = e.target.closest("button[data-i]");
+  if (b) { showPokemon(POKEMON[+b.dataset.i]); q.value = ""; q.blur(); }
+});
+recentsEl.addEventListener("click", e => {
+  const b = e.target.closest("button[data-name]");
+  const p = b && POKEMON.find(x => x[0] === b.dataset.name);
+  if (p) showPokemon(p);
+});
+
+drawRecents();
+showList([]);
+</script>
+</body>
+</html>

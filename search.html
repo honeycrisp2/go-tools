@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1c1f25">
+<title>Search Builder · GO Tools</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .grp h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 16px 0 6px; }
+  .grp .hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .term {
+    font: inherit; font-size: 14px; padding: 8px 12px; border-radius: 999px; cursor: pointer;
+    border: 1.5px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  .term[data-state="in"]  { border-color: var(--se); background: var(--se-bg); color: var(--se); font-weight: 700; }
+  .term[data-state="out"] { border-color: var(--nve); background: var(--nve-bg); color: var(--nve); font-weight: 700; text-decoration: line-through; }
+  .term.typed { color: #fff; background: var(--tc); border-color: transparent; opacity: .5; text-shadow: 0 1px 1px rgba(0,0,0,.35); }
+  .term.typed[data-state="in"] { opacity: 1; text-decoration: none; border-color: var(--text); }
+  .term.typed[data-state="out"] { opacity: 1; border-color: var(--nve); text-decoration: line-through; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .chk { display: flex; align-items: center; gap: 6px; font-size: 14px; margin-top: 6px; }
+  .presets .chip { margin: 0 4px 6px 0; }
+  .saved { list-style: none; padding: 0; margin: 0; }
+  .saved li { display: flex; gap: 8px; align-items: center; background: var(--surface);
+              border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; }
+  .saved .s-text { flex: 1; min-width: 0; }
+  .saved .s-name { font-weight: 700; font-size: 14px; }
+  .saved code { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #out { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 15px; height: 64px; resize: none; }
+  .bottombar .btnrow { margin-top: 8px; }
+  .bottombar .big { flex: 1; }
+  .legend-line { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+</style>
+</head>
+<body class="app">
+  <header class="topbar">
+    <a class="back" href="./" aria-label="Back to tools">‹</a>
+    <h1>Search Builder</h1>
+  </header>
+
+  <main class="app-main"><div class="page" id="page">
+    <p class="legend-line">Tap once to <b style="color:var(--se)">include</b>, again to <b style="color:var(--nve)">exclude</b>, again to clear.</p>
+    <div class="grp presets"><h3>Presets</h3><div id="presets"></div></div>
+    <div id="groups"></div>
+    <div class="grp">
+      <h3>Name / family</h3>
+      <input type="text" id="name" placeholder="e.g. pikachu" autocomplete="off" autocapitalize="off">
+      <label class="chk"><input type="checkbox" id="family"> Include the whole evolution family</label>
+    </div>
+    <div class="grp">
+      <h3>CP range</h3>
+      <div class="row2">
+        <input type="number" id="cpMin" placeholder="min" inputmode="numeric">
+        <input type="number" id="cpMax" placeholder="max" inputmode="numeric">
+      </div>
+    </div>
+    <div class="grp"><h3>Saved searches</h3><ul class="saved" id="saved"></ul></div>
+  </div></main>
+
+  <div class="bottombar">
+    <textarea id="out" placeholder="Your search appears here" autocapitalize="off" spellcheck="false"></textarea>
+    <div class="btnrow">
+      <button class="chip" id="clear">Clear</button>
+      <button class="chip" id="save">☆ Save</button>
+      <button class="big" id="copy">Copy</button>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script src="types.js"></script>
+<script>
+// join: how several "include" picks in one group combine. "or" → a,b   "and" → a&b
+const GROUPS = [
+  { id: "stars", title: "Appraisal", hint: "4★ = 100% IVs", join: "or",
+    terms: [["0*","0★"],["1*","1★"],["2*","2★"],["3*","3★"],["4*","4★ (hundo)"]] },
+  { id: "special", title: "Special", join: "and",
+    terms: [["shiny","Shiny"],["lucky","Lucky"],["shadow","Shadow"],["purified","Purified"],
+            ["legendary","Legendary"],["mythical","Mythical"],["ultra beasts","Ultra Beasts"],
+            ["costume","Costume"],["dynamax","Dynamax"],["gigantamax","Gigantamax"],
+            ["locationbackground","Location background"],["specialbackground","Special background"],
+            ["favorite","Favorite"],["defender","Gym defender"],["buddy1-5","Has been buddy"]] },
+  { id: "origin", title: "Where it came from", join: "or",
+    terms: [["traded","Traded"],["hatched","Hatched"],["raid","Raid"],["research","Research"],
+            ["gbl","GO Battle League"],["eggsonly","Egg-only species"]] },
+  { id: "age", title: "When caught", join: "or",
+    terms: [["age0","Today"],["age0-1","Last 2 days"],["age0-7","Last week"],["age0-30","Last 30 days"],["distance100-","100 km+ away"]] },
+  { id: "evo", title: "Evolution", join: "and",
+    terms: [["evolve","Can evolve"],["evolvenew","Evolves into new dex entry"],["tradeevolve","Trade evolution"],
+            ["item","Needs evolution item"],["megaevolve","Can Mega Evolve"]] },
+  { id: "size", title: "Size & gender", join: "or",
+    terms: [["xxs","XXS"],["xs","XS"],["xl","XL"],["xxl","XXL"],["male","♂"],["female","♀"],["genderunknown","Genderless"]] },
+  { id: "type", title: "Pokémon type", join: "or", typed: true,
+    terms: TYPES.map(t => [t.toLowerCase(), t]) },
+  { id: "region", title: "Region", join: "or",
+    terms: ["Kanto","Johto","Hoenn","Sinnoh","Unova","Kalos","Alola","Galar","Hisui","Paldea"].map(r => [r.toLowerCase(), r]) },
+];
+
+const PRESETS = [
+  { name: "Transfer candidates",
+    state: { "3*":"out","4*":"out", shiny:"out", lucky:"out", shadow:"out", purified:"out", legendary:"out",
+             mythical:"out", "ultra beasts":"out", costume:"out", favorite:"out", xxl:"out", xxs:"out",
+             dynamax:"out", gigantamax:"out", locationbackground:"out", specialbackground:"out" } },
+  { name: "Hundos", state: { "4*": "in" } },
+  { name: "Shinies to trade", state: { shiny: "in", traded: "out", lucky: "out", favorite: "out", legendary: "out", mythical: "out" } },
+  { name: "Today's catches", state: { age0: "in" } },
+  { name: "Ready to evolve", state: { evolve: "in" } },
+];
+
+let state = {};   // term -> "in" | "out"
+const $ = id => document.getElementById(id);
+const out = $("out");
+
+$("groups").innerHTML = GROUPS.map(g => `<div class="grp"><h3>${g.title}${g.hint ? ` <span class="hint">· ${g.hint}</span>` : ""}</h3>
+  <div class="chips">${g.terms.map(([term, label]) =>
+    `<button class="term${g.typed ? ` typed t-${term}` : ""}" data-term="${term}">${label}</button>`).join("")}</div></div>`).join("");
+$("presets").innerHTML = PRESETS.map((p, i) => `<button class="chip" data-p="${i}">${p.name}</button>`).join("");
+
+function build() {
+  const parts = [];
+  const name = $("name").value.trim().toLowerCase();
+  if (name) parts.push(($("family").checked ? "+" : "") + name);
+  for (const g of GROUPS) {
+    const ins = g.terms.map(t => t[0]).filter(t => state[t] === "in");
+    if (ins.length) {
+      if (g.join === "or") parts.push(ins.join(","));
+      else parts.push(...ins);
+    }
+    g.terms.forEach(([t]) => { if (state[t] === "out") parts.push("!" + t); });
+  }
+  const lo = $("cpMin").value, hi = $("cpMax").value;
+  if (lo || hi) parts.push(`cp${lo}-${hi}`);
+  return parts.join("&");
+}
+
+function draw() {
+  document.querySelectorAll(".term").forEach(b => {
+    const s = state[b.dataset.term];
+    s ? b.dataset.state = s : delete b.dataset.state;
+  });
+  out.value = build();
+}
+
+$("groups").addEventListener("click", e => {
+  const b = e.target.closest(".term"); if (!b) return;
+  const t = b.dataset.term;
+  state[t] = state[t] === "in" ? "out" : state[t] === "out" ? undefined : "in";
+  if (!state[t]) delete state[t];
+  draw();
+});
+$("presets").addEventListener("click", e => {
+  const b = e.target.closest("[data-p]"); if (!b) return;
+  state = { ...PRESETS[+b.dataset.p].state };
+  $("name").value = ""; $("family").checked = false; $("cpMin").value = ""; $("cpMax").value = "";
+  draw();
+});
+["name", "family", "cpMin", "cpMax"].forEach(id => $(id).addEventListener("input", draw));
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 1400);
+}
+async function copy(text) {
+  if (!text) return toast("Nothing to copy");
+  try { await navigator.clipboard.writeText(text); }
+  catch { out.select(); document.execCommand("copy"); }
+  toast("Copied, paste it into GO's search");
+}
+$("copy").addEventListener("click", () => copy(out.value));
+$("clear").addEventListener("click", () => {
+  state = {}; $("name").value = ""; $("family").checked = false; $("cpMin").value = ""; $("cpMax").value = "";
+  draw();
+});
+
+// Saved searches
+let saved = store.get("search-saved", []);
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+function drawSaved() {
+  $("saved").innerHTML = saved.length ? saved.map((s, i) => `<li>
+      <div class="s-text"><div class="s-name">${esc(s.name)}</div><code>${esc(s.text)}</code></div>
+      <button class="chip" data-copy="${i}">Copy</button><button class="chip" data-del="${i}" aria-label="Delete">✕</button></li>`).join("")
+    : `<li class="muted" style="font-size:14px">Build a search and tap ☆ Save to keep it here.</li>`;
+}
+$("save").addEventListener("click", () => {
+  const text = out.value.trim(); if (!text) return toast("Nothing to save");
+  const name = prompt("Name this search", text.length > 24 ? text.slice(0, 24) + "…" : text);
+  if (name === null) return;
+  saved.unshift({ name: name.trim() || text, text });
+  store.set("search-saved", saved); drawSaved(); toast("Saved");
+});
+$("saved").addEventListener("click", e => {
+  const c = e.target.closest("[data-copy]"), d = e.target.closest("[data-del]");
+  if (c) copy(saved[+c.dataset.copy].text);
+  if (d && confirm(`Delete “${saved[+d.dataset.del].name}”?`)) {
+    saved.splice(+d.dataset.del, 1); store.set("search-saved", saved); drawSaved();
+  }
+});
+
+drawSaved();
+draw();
+</script>
+</body>
+</html>

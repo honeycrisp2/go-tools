@@ -1,0 +1,20 @@
+{
+  "name": "GO Tools",
+  "short_name": "GO Tools",
+  "description": "Mobile-friendly Pokémon GO type chart, raid boss lookup and search builder.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1c1f25",
+  "theme_color": "#1c1f25",
+  "shortcuts": [
+    { "name": "Boss Lookup", "url": "boss.html", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Type Chart", "url": "type-chart.html", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Search Builder", "url": "search.html", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
