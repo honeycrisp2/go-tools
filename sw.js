@@ -1,11 +1,11 @@
 // Offline support. Try the network first so updates show right away, but if it is
 // offline or takes longer than TIMEOUT (weak signal at a raid), use the saved copy.
 // Bump VERSION when adding or renaming files.
-const VERSION = "v3";
+const VERSION = "v4";
 const TIMEOUT = 2500;
 const FILES = [
   "./", "index.html", "type-chart.html", "boss.html", "dual-type.html", "search.html",
-  "styles.css", "types.js", "pokemon.js", "manifest.webmanifest",
+  "styles.css", "types.js", "gamedata.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png",
 ];
 

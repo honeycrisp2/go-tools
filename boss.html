@@ -2,13 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#1c1f25">
 <title>Boss Lookup · GO Tools</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="styles.css">
 <style>
+  /* Header + search stay pinned at the top; the rest scrolls like a normal page */
+  .head { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .head .topbar { border-bottom: 0; padding-bottom: 4px; }
+  .searchwrap { padding: 0 12px 10px; }
+  .recents { display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 10px; scrollbar-width: none; }
+  .recents:empty { display: none; }
+  .recents button.chip { white-space: nowrap; }
+
   .results { list-style: none; margin: 0; padding: 0; }
   .results button {
     display: flex; width: 100%; align-items: center; gap: 8px; text-align: left;
@@ -16,102 +25,229 @@
     background: var(--surface); border: 0; border-bottom: 1px solid var(--border);
     padding: 12px; cursor: pointer;
   }
-  .results .dex { color: var(--muted); font-size: 12px; width: 38px; flex: none; }
-  .results .name { flex: 1; }
+  .results .dex { color: var(--muted); font-size: 12px; width: 40px; flex: none; }
+  .results .name { flex: 1; min-width: 0; }
   .results .pill { font-size: 11px; }
-  .card-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
+
+  .card-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 4px 0 4px; }
   .card-h h2 { margin: 0; font-size: 22px; }
-  .card-types { display: flex; gap: 4px; margin-bottom: 4px; }
-  .note { font-size: 12px; color: var(--muted); margin-top: 14px; }
-  .recents { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; scrollbar-width: none; }
-  .recents:empty { display: none; }
-  .recents button.chip { white-space: nowrap; }
-  .empty { padding: 24px 12px; text-align: center; color: var(--muted); }
+  .card-types { display: flex; gap: 4px; }
+  .empty { padding: 28px 16px; text-align: center; color: var(--muted); line-height: 1.5; }
+  .note { font-size: 12px; color: var(--muted); margin: 10px 0 0; line-height: 1.45; }
+
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .atk { list-style: none; margin: 0; padding: 0; }
+  .atk li {
+    display: grid; grid-template-columns: 24px 1fr auto; gap: 2px 8px; align-items: center;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 10px; margin-bottom: 6px;
+  }
+  .atk .rank { color: var(--muted); font-weight: 700; font-size: 13px; grid-row: span 2; text-align: center; }
+  .atk .who { font-weight: 700; font-size: 15px; min-width: 0; }
+  .atk .tag { font-size: 10px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-left: 4px; vertical-align: 2px; }
+  .tag.shadow { background: #4b2a6b; color: #e6d2ff; }
+  .tag.mega { background: #2a4f6b; color: #d2eeff; }
+  .atk .dps { font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; font-size: 14px; }
+  .atk .dps small { display: block; font-weight: 500; color: var(--muted); font-size: 10px; }
+  .atk .moves { grid-column: 2 / span 2; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .mv { white-space: nowrap; }
+  .mv i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--tc); margin-right: 4px; }
+  .mv.elite::after { content: "†"; color: var(--accent); margin-left: 2px; }
+  .bar { grid-column: 2 / span 2; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--se); }
+  .more { width: 100%; margin-top: 4px; }
 </style>
 </head>
-<body class="app">
-  <header class="topbar">
-    <a class="back" href="./" aria-label="Back to tools">‹</a>
-    <h1>Boss Lookup</h1>
-  </header>
-
-  <main class="app-main" id="main"></main>
-
-  <div class="bottombar">
+<body>
+  <div class="head">
+    <header class="topbar">
+      <a class="back" href="./" aria-label="Back to tools">‹</a>
+      <h1>Boss Lookup</h1>
+    </header>
+    <div class="searchwrap">
+      <input type="search" id="q" placeholder="Search Pokémon (e.g. mega gengar)" autocomplete="off" enterkeyhint="search">
+    </div>
     <div class="recents" id="recents"></div>
-    <input type="search" id="q" placeholder="Pokémon name or dex #" autocomplete="off" enterkeyhint="search">
   </div>
 
+  <main id="main"></main>
+
 <script src="types.js"></script>
-<script src="pokemon.js"></script>
+<script src="gamedata.js"></script>
 <script>
 const main = document.getElementById("main");
 const q = document.getElementById("q");
 const recentsEl = document.getElementById("recents");
-const norm = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
-const INDEX = POKEMON.map(p => ({ p, key: norm(p[0]) }));
-let recents = store.get("boss-recents", []);
+const norm = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const words = s => norm(s).split(/[^a-z0-9]+/).filter(Boolean);
 
-function typesOf(p) { return p.slice(2); }
+// Bosses: everything except Shadow duplicates (a Shadow boss has the same types).
+const BOSSES = MONS.map((m, i) => ({ i, m, w: words(m[0]), released: m[9] & 4 })).filter(b => !(b.m[9] & 1));
+let recents = store.get("boss-recents2", []);
+let current = null;
+let shown = 15;
+const opts = Object.assign({ shadow: true, mega: true, elite: true }, store.get("boss-opts", {}));
+
+const typesOf = m => m[2].map(i => TYPES[i]);
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 function search(text) {
-  const n = norm(text);
-  if (!n) return [];
-  if (/^\d+$/.test(n)) return INDEX.filter(x => x.p[1] === +n).map(x => x.p);
-  const starts = [], words = [], inside = [];
-  for (const x of INDEX) {
-    if (x.key.startsWith(n)) starts.push(x.p);
-    else if (x.p[0].toLowerCase().split(/[\s(]+/).some(w => norm(w).startsWith(n))) words.push(x.p);
-    else if (x.key.includes(n)) inside.push(x.p);
-  }
-  return [...starts, ...words, ...inside].slice(0, 40);
+  const qw = words(text);
+  if (!qw.length) return [];
+  if (qw.length === 1 && /^\d+$/.test(qw[0])) return BOSSES.filter(b => b.m[1] === +qw[0]);
+  const hits = BOSSES.filter(b => qw.every(x => b.w.some(w => w.startsWith(x))));
+  // Exact name start first, released before unreleased, then dex order
+  return hits.sort((a, b) =>
+    (b.w[0].startsWith(qw[0]) - a.w[0].startsWith(qw[0])) || (b.released - a.released) || (a.m[1] - b.m[1])
+  ).slice(0, 50);
 }
 
-function showList(list) {
-  if (!q.value.trim()) {
-    main.innerHTML = `<div class="empty">Type a raid boss's name below.<br>Shadow and Mega versions are listed by name where their types differ.</div>`;
-    return;
-  }
-  if (!list.length) { main.innerHTML = `<div class="empty">No Pokémon match “${q.value.replace(/</g, "&lt;")}”.</div>`; return; }
-  main.innerHTML = `<ul class="results">` + list.map((p, i) =>
-    `<li><button data-i="${POKEMON.indexOf(p)}"><span class="dex">#${p[1]}</span><span class="name">${p[0]}</span>${typesOf(p).map(t => pill(t)).join(" ")}</button></li>`
-  ).join("") + `</ul>`;
+function showList() {
+  const text = q.value.trim();
+  if (!text) { current ? showBoss(current, false) : showHome(); return; }
+  const list = search(text);
+  main.innerHTML = list.length
+    ? `<ul class="results">` + list.map(b =>
+        `<li><button data-i="${b.i}"><span class="dex">#${b.m[1]}</span><span class="name">${esc(b.m[0])}</span>${typesOf(b.m).map(t => pill(t)).join(" ")}</button></li>`).join("") + `</ul>`
+    : `<div class="empty">No Pokémon match “${esc(text)}”.</div>`;
 }
 
-function showPokemon(p) {
-  const t = typesOf(p);
+function showHome() {
+  main.innerHTML = `<div class="empty">Search for a raid boss to see its weaknesses<br>and the best Pokémon to bring.</div>`;
+}
+
+/* ---------- Best attackers ----------
+   Estimate, in the style of common raid calculators: level 40 attackers with perfect IVs,
+   no weather, no dodging. Damage = floor(0.5 × power × atk/def × STAB × effectiveness) + 1.
+   DPS uses a fast-move/charged-move cycle. Ranking weighs damage speed and bulk
+   (DPS³ × TDO, where TDO grows with DPS × HP × DEF), so glass cannons do not dominate. */
+const CPM40 = 0.7903, BOSS_CPM = 0.79;
+function bestAttackers(boss) {
+  const bossTypes = boss[2].map(i => TYPES[i]);
+  const bossDef = (boss[4] + 15) * BOSS_CPM;
+  const out = [];
+  for (const m of MONS) {
+    const [name, , types, a, d, h, fast, charged, elite, flags] = m;
+    if (!(flags & 4)) continue;                 // not released
+    if ((flags & 1) && !opts.shadow) continue;
+    if ((flags & 2) && !opts.mega) continue;
+    const shadow = flags & 1;
+    const atk = (a + 15) * CPM40 * (shadow ? 1.2 : 1);
+    const def = (d + 15) * CPM40 * (shadow ? 5 / 6 : 1);
+    const hp = Math.floor((h + 15) * CPM40);
+    const ok = i => opts.elite || !elite.includes(i);
+    const dmg = mv => {
+      const [, t, power] = MOVES[mv];
+      const stab = types.includes(t) ? 1.2 : 1;
+      return Math.floor(0.5 * power * atk / bossDef * stab * 1.6 ** steps(TYPES[t], bossTypes)) + 1;
+    };
+    let best = null;
+    for (const f of fast) {
+      if (!ok(f)) continue;
+      const fd = dmg(f), fdur = MOVES[f][3], fe = MOVES[f][4];
+      if (fe <= 0) continue;
+      for (const c of charged) {
+        if (!ok(c)) continue;
+        const cost = -MOVES[c][4];
+        if (cost <= 0) continue;
+        const n = Math.ceil(cost / fe);
+        const dps = (n * fd + dmg(c)) / ((n * fdur + MOVES[c][3]) / 1000);
+        if (!best || dps > best.dps) best = { dps, f, c };
+      }
+    }
+    if (!best) continue;
+    best.score = best.dps ** 4 * hp * def;
+    best.m = m;
+    out.push(best);
+  }
+  out.sort((x, y) => y.score - x.score);
+  return out;
+}
+
+function moveHTML(i, m) {
+  const [name, t] = MOVES[i];
+  return `<span class="mv t-${TYPES[t].toLowerCase()}${m[8].includes(i) ? " elite" : ""}"><i></i>${esc(name)}</span>`;
+}
+
+function attackersHTML(boss) {
+  const list = bestAttackers(boss);
+  if (!list.length) return `<p class="muted">No attackers found.</p>`;
+  const top = list[0].score ** 0.25;
+  return `<ol class="atk">` + list.slice(0, shown).map((x, k) => {
+    const m = x.m;
+    const base = m[0].replace(/ \((Shadow|Mega[^)]*|Primal)\)/, "");
+    const tag = (m[9] & 1 ? `<span class="tag shadow">SHADOW</span>` : "") +
+                (m[9] & 2 ? `<span class="tag mega">${/Primal/.test(m[0]) ? "PRIMAL" : "MEGA"}${(m[0].match(/Mega (X|Y|Z)/) || [, ""])[1] ? " " + m[0].match(/Mega (X|Y|Z)/)[1] : ""}</span>` : "");
+    const pct = Math.round(100 * x.score ** 0.25 / top);
+    return `<li><span class="rank">${k + 1}</span>
+      <span class="who">${esc(base)}${tag}</span>
+      <span class="dps">${x.dps.toFixed(1)}<small>DPS</small></span>
+      <span class="moves">${moveHTML(x.f, m)}${moveHTML(x.c, m)}</span>
+      <span class="bar"><span style="width:${pct}%"></span></span></li>`;
+  }).join("") + `</ol>` +
+  (list.length > shown ? `<button class="chip more" id="more">Show more</button>` : "");
+}
+
+function showBoss(i, remember = true) {
+  current = i;
+  const m = MONS[i];
+  const t = typesOf(m);
   main.innerHTML = `<div class="page">
-    <div class="card-h"><h2>${p[0]}</h2><span class="muted">#${p[1]}</span></div>
+    <div class="card-h"><h2>${esc(m[0])}</h2><span class="muted">#${m[1]}</span></div>
     <div class="card-types">${t.map(x => pill(x)).join("")}</div>
     ${matchupHTML(t)}
-    <p class="note">Bring attackers with moves in the top row. Shadow Pokémon have the same types as their normal form.</p>
+    <h3 class="mu-h">Best attackers</h3>
+    <div class="filters">
+      <button class="chip" data-opt="shadow" aria-pressed="${opts.shadow}">Shadow</button>
+      <button class="chip" data-opt="mega" aria-pressed="${opts.mega}">Mega / Primal</button>
+      <button class="chip" data-opt="elite" aria-pressed="${opts.elite}">Legacy moves †</button>
+    </div>
+    <div id="atk">${attackersHTML(m)}</div>
+    <p class="note">Estimated for level 40, perfect IVs, no weather boost. Ranked by damage speed and bulk.
+      † = Elite TM / legacy move. Shadow bosses have the same types as normal ones.</p>
   </div>`;
-  main.scrollTop = 0;
-  recents = [p[0], ...recents.filter(n => n !== p[0])].slice(0, 10);
-  store.set("boss-recents", recents);
-  drawRecents();
+  if (remember) {
+    recents = [m[0], ...recents.filter(n => n !== m[0])].slice(0, 10);
+    store.set("boss-recents2", recents);
+    drawRecents();
+    scrollTo(0, 0);
+  }
 }
 
 function drawRecents() {
-  recentsEl.innerHTML = recents.map(n => `<button class="chip" data-name="${n}">${n}</button>`).join("");
+  const idx = name => MONS.findIndex(m => m[0] === name);
+  recents = recents.filter(n => typeof n === "string" && idx(n) >= 0);
+  recentsEl.innerHTML = recents.map(n => `<button class="chip" data-i="${idx(n)}">${esc(n)}</button>`).join("");
 }
 
-q.addEventListener("input", () => showList(search(q.value)));
+q.addEventListener("input", showList);
 q.addEventListener("keydown", e => {
-  if (e.key === "Enter") { const r = search(q.value); if (r.length) { showPokemon(r[0]); q.blur(); } }
+  if (e.key === "Enter") { const r = search(q.value); if (r.length) pick(r[0].i); }
 });
+function pick(i) { q.value = ""; q.blur(); shown = 15; showBoss(i); }
+
 main.addEventListener("click", e => {
   const b = e.target.closest("button[data-i]");
-  if (b) { showPokemon(POKEMON[+b.dataset.i]); q.value = ""; q.blur(); }
+  if (b) return pick(+b.dataset.i);
+  const o = e.target.closest("button[data-opt]");
+  if (o) {
+    opts[o.dataset.opt] = !opts[o.dataset.opt];
+    store.set("boss-opts", opts);
+    o.setAttribute("aria-pressed", opts[o.dataset.opt]);
+    document.getElementById("atk").innerHTML = attackersHTML(MONS[current]);
+  }
+  if (e.target.id === "more") {
+    shown += 15;
+    document.getElementById("atk").innerHTML = attackersHTML(MONS[current]);
+  }
 });
 recentsEl.addEventListener("click", e => {
-  const b = e.target.closest("button[data-name]");
-  const p = b && POKEMON.find(x => x[0] === b.dataset.name);
-  if (p) showPokemon(p);
+  const b = e.target.closest("button[data-i]");
+  if (b) pick(+b.dataset.i);
 });
 
 drawRecents();
-showList([]);
+showHome();
 </script>
 </body>
 </html>

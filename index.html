@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#1c1f25">
 <title>GO Tools</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="styles.css">
 <style>
   main { max-width: 560px; margin: 0 auto; padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); }
@@ -31,10 +32,11 @@
   <header class="topbar"><h1>Pokémon GO Tools</h1></header>
   <main>
     <button class="big" id="install">⬇ Install as an app</button>
+    <p class="muted" id="iosHint" style="display:none;font-size:14px;margin:0 0 14px">To install: tap <b>Share</b> → <b>Add to Home Screen</b>.</p>
 
     <a class="tool" href="boss.html">
       <div class="ico">🔍</div>
-      <div><strong>Boss Lookup</strong><span class="d">Type a raid boss's name and see what it's weak to.</span></div>
+      <div><strong>Boss Lookup</strong><span class="d">Search a raid boss to see its weaknesses and the best attackers to bring.</span></div>
     </a>
     <a class="tool" href="type-chart.html">
       <div class="ico">▦</div>
@@ -50,19 +52,31 @@
     </a>
 
     <details>
-      <summary>Phone setup tips (Samsung)</summary>
+      <summary>Phone setup tips</summary>
       <div class="tips">
-        <h4>Install it</h4>
-        <p>In Chrome: <b>⋮ menu</b> → <b>Add to home screen</b> → <b>Install</b>. In Samsung Internet: <b>☰ menu</b> → <b>Add page to</b> → <b>Home screen</b>.
-           Once installed it opens full-screen and works with no signal. Long-press the icon to jump straight to a tool.</p>
-        <h4>Edge panel</h4>
-        <p><b>Settings</b> → <b>Display</b> → <b>Edge panels</b> → turn on <b>Apps</b>, then edit it and add GO Tools. Swipe in from the edge mid-raid to open it.</p>
-        <h4>Next to the game</h4>
-        <p>With GO open, open <b>Recents</b>, tap the GO Tools icon at the top of its card and choose <b>Open in pop-up view</b> (floating window) or <b>Open in split screen view</b>.
-           If Pokémon GO refuses to split, turn on <b>Settings</b> → <b>Advanced features</b> → <b>Labs</b> → <b>Multi window for all apps</b>.
-           The type chart's <b>Fit</b> button shrinks it to whatever window size it gets.</p>
-        <h4>S Pen</h4>
-        <p>Hover the pen over a type chart cell to see the matchup without tapping.</p>
+        <h4>Install it as an app</h4>
+        <p>Once installed it opens full-screen with its own icon and works with no signal.</p>
+        <p><b>Android (Chrome):</b> <b>⋮</b> → <b>Add to home screen</b> → <b>Install</b>.<br>
+           <b>Samsung Internet:</b> <b>☰</b> → <b>Add page to</b> → <b>Home screen</b>.<br>
+           <b>Firefox (Android):</b> <b>⋮</b> → <b>Add app to Home screen</b>.<br>
+           <b>iPhone / iPad (Safari):</b> <b>Share</b> <span aria-hidden="true">⎙</span> → <b>Add to Home Screen</b>.</p>
+        <p>On Android, long-press the icon to jump straight to Boss Lookup, Type Chart or Search Builder.</p>
+
+        <h4>Use it next to the game</h4>
+        <p><b>Most Android phones:</b> open <b>Recents</b> (the app switcher), tap the GO Tools icon above its preview and choose <b>Split screen</b>.
+           The wording varies by brand.</p>
+        <p><b>Samsung:</b> the same menu also has <b>Open in pop-up view</b> for a small floating window.
+           If Pokémon GO refuses to split, turn on <b>Settings</b> → <b>Advanced features</b> → <b>Labs</b> → <b>Multi window for all apps</b>.</p>
+        <p><b>iPhone:</b> there's no split screen, but swiping left/right along the bottom edge flips between GO and GO Tools instantly,
+           and both stay where you left them.</p>
+        <p>The type chart's <b>Fit</b> button shrinks it to whatever window size it gets.</p>
+
+        <h4>Faster access</h4>
+        <p><b>Samsung Edge panel:</b> <b>Settings</b> → <b>Display</b> → <b>Edge panels</b> → turn on <b>Apps</b>, then add GO Tools. Swipe in from the edge mid-raid.</p>
+        <p><b>iPhone Back Tap:</b> make a Shortcut that opens this site, then pick it under <b>Settings</b> → <b>Accessibility</b> → <b>Touch</b> → <b>Back Tap</b>. Double-tap the back of the phone to open it.</p>
+
+        <h4>Stylus or mouse</h4>
+        <p>Hover a pen (S Pen, Apple Pencil) or mouse over a type chart cell to see the matchup without tapping.</p>
       </div>
     </details>
   </main>
@@ -78,6 +92,8 @@ btn.addEventListener("click", async () => {
   await deferred.userChoice;
   deferred = null; btn.style.display = "none";
 });
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !standalone) document.getElementById("iosHint").style.display = "block";
 addEventListener("appinstalled", () => { btn.style.display = "none"; });
 </script>
 </body>

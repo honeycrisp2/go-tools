@@ -99,7 +99,9 @@ button.chip[aria-pressed="true"] { background: var(--accent); border-color: var(
 }
 
 /* Full-height app layout: top bar, scrolling middle, bottom bar within thumb reach */
-body.app { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+/* Pin to the visible screen. Works in every mobile browser, even ones without dvh units,
+   and never ends up taller than the screen when the browser toolbar shows. */
+body.app { position: fixed; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
 .app-main { flex: 1; overflow: auto; overscroll-behavior: contain; }
 .bottombar {
   background: var(--surface); border-top: 1px solid var(--border);
