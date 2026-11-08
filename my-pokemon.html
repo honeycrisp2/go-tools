@@ -20,6 +20,7 @@
   .file { display: block; }
   .file input { display: none; }
   .file .big { display: block; text-align: center; }
+  .file .big.secondary { background: var(--surface); color: var(--accent); border: 2px solid var(--accent); }
   select { font: inherit; font-size: 16px; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
            background: var(--surface); color: var(--text); width: 100%; }
   .hidden-list { list-style: none; padding: 0; margin: 8px 0 0; max-height: 260px; overflow: auto; }
@@ -45,11 +46,15 @@
       <h2>Import from Poke Genie</h2>
       <ol class="steps">
         <li>In Poke Genie, open your scan history and export it as a CSV file.</li>
-        <li>Tap the button below and pick that file.</li>
+        <li>Tap a button below and pick that file.</li>
       </ol>
-      <p class="muted" style="font-size:13px">Duplicates and repeat scans are merged automatically. A new import replaces the old one,
-        but Pokémon you've marked as gone stay hidden. <b>Your file never leaves this device.</b></p>
-      <label class="file"><input type="file" id="csv" accept=".csv,text/csv"><span class="big" role="button">⬆ Import CSV</span></label>
+      <label class="file"><input type="file" id="csvReplace" accept=".csv,text/csv"><span class="big" role="button">⬆ Import full export</span></label>
+      <p class="muted" style="font-size:13px;margin:6px 0 12px">Replaces your saved list with everything in the file.</p>
+      <label class="file"><input type="file" id="csvMerge" accept=".csv,text/csv"><span class="big secondary" role="button">＋ Add / update from a rescan</span></label>
+      <p class="muted" style="font-size:13px;margin:6px 0 0">For a small export of just the Pokémon you rescanned:
+        those get updated, new ones get added, and everything else stays as it was.</p>
+      <p class="muted" style="font-size:13px;margin:10px 0 0">Duplicate scans are merged automatically. A Pokémon you marked as gone
+        comes back if you scan it again. <b>Your file never leaves this device.</b></p>
       <p id="importMsg" style="margin:10px 0 0"></p>
     </div>
 
@@ -116,9 +121,14 @@ function drawSummary() {
 
 function drawHidden() {
   const data = myStore.load(), hidden = myStore.hidden();
+  // Forget "gone" marks for Pokémon that have been scanned again since.
+  const recs = new Map((data?.records || []).map(r => [r.k, r]));
+  let pruned = false;
+  for (const [k, at] of hidden) if (recs.has(k) && scanTime(recs.get(k)) > at) { hidden.delete(k); pruned = true; }
+  if (pruned) myStore.setHidden(hidden);
   if (!hidden.size) { $("hidden").innerHTML = `<p class="muted" style="margin:0">Nothing hidden.</p>`; return; }
   const byKey = new Map((data?.records || []).map(r => [r.k, r]));
-  const items = [...hidden].map(k => {
+  const items = [...hidden.keys()].map(k => {
     const r = byKey.get(k);
     const label = r ? `${esc(r.mon)}${r.sh === 1 ? " (Shadow)" : ""} · CP ${r.cp}${r.iv ? " · " + r.iv.join("/") : ""}` : `<span class="muted">Not in current import</span>`;
     return `<li><span>${label}</span><button class="chip" data-unhide="${esc(k)}">Restore</button></li>`;
@@ -126,19 +136,26 @@ function drawHidden() {
   $("hidden").innerHTML = `<button class="chip" id="unhideAll">Restore all ${hidden.size}</button><ul class="hidden-list">${items.join("")}</ul>`;
 }
 
-$("csv").addEventListener("change", async e => {
+async function doImport(e, merge) {
   const f = e.target.files[0]; if (!f) return;
   $("importMsg").innerHTML = "Reading…";
   try {
     const { records, report } = importPokeGenie(await f.text());
-    myStore.save(records, report);
-    $("importMsg").innerHTML = `<span class="ok">Imported ${n(report.kept)} Pokémon.</span>`;
+    if (merge && myStore.load()) {
+      const r = myStore.merge(records, report).report;
+      $("importMsg").innerHTML = `<span class="ok">Updated ${n(r.updated)} and added ${n(r.added)} Pokémon.</span>`;
+    } else {
+      myStore.save(records, report);
+      $("importMsg").innerHTML = `<span class="ok">Imported ${n(report.kept)} Pokémon.</span>`;
+    }
   } catch (err) {
     $("importMsg").innerHTML = `<span class="err">${esc(err.message)}</span>`;
   }
   e.target.value = "";
   drawSummary(); drawHidden();
-});
+}
+$("csvReplace").addEventListener("change", e => doImport(e, false));
+$("csvMerge").addEventListener("change", e => doImport(e, true));
 
 $("cutoff").value = String(myStore.cutoffDays());
 $("cutoff").addEventListener("change", e => { myStore.setCutoffDays(+e.target.value); drawSummary(); });

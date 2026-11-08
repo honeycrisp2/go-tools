@@ -29,7 +29,8 @@ function bestCycle(attTypes, atk, boss, fastList, chargedList) {
   const dmg = mv => {
     const [, t, power] = MOVES[mv];
     const stab = attTypes.includes(t) ? 1.2 : 1;
-    return Math.floor(0.5 * power * atk / boss.def * stab * 1.6 ** steps(TYPES[t], boss.types)) + 1;
+    const eff = boss.mult ? boss.mult(TYPES[t]) : 1.6 ** steps(TYPES[t], boss.types);
+    return Math.floor(0.5 * power * atk / boss.def * stab * eff) + 1;
   };
   let best = null;
   for (const f of fastList) {
@@ -57,6 +58,26 @@ function statsFor(m, level, ivA, ivD, ivS, shadow) {
   };
 }
 const rankScore = (dps, st) => dps ** 4 * st.hp * st.def;
+
+// A typical raid boss that is weak (1.6×) to one attacking type and neutral to the rest.
+function typeBoss(type) {
+  return { types: [], def: (200 + 15) * BOSS_CPM, mult: t => (t === type ? 1.6 : 1) };
+}
+
+// Stardust / candy / XL candy to power up from one level to another.
+function powerUpCost(from, to, { shadow = false, purified = false, lucky = false } = {}) {
+  const U = UPGRADE;
+  const dm = (shadow ? U.shadowStardustMultiplier : purified ? U.purifiedStardustMultiplier : 1) * (lucky ? 0.5 : 1);
+  const cm = shadow ? U.shadowCandyMultiplier : purified ? U.purifiedCandyMultiplier : 1;
+  let dust = 0, candy = 0, xl = 0;
+  for (let lv = from; lv < to; lv += 0.5) {
+    const i = Math.floor(lv) - 1;
+    dust += Math.ceil((U.stardustCost[i] ?? 0) * dm);
+    if (lv < U.xlCandyMinPokemonLevel) candy += Math.ceil((U.candyCost[i] ?? 0) * cm);
+    else xl += Math.ceil((U.xlCandyCost[Math.floor(lv) - U.xlCandyMinPokemonLevel] ?? 0) * cm);
+  }
+  return { dust, candy, xl };
+}
 
 // Overall best: every released Pokémon at level 40 with perfect IVs, best moves.
 function bestOverall(bossMon, opts) {

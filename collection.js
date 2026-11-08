@@ -129,8 +129,32 @@ const myStore = {
     myCache = undefined;
     return this.load();
   },
+  // Add a (partial) export on top of what's saved: rescanned Pokémon are replaced, new ones added.
+  merge(newRecords, report) {
+    const old = this.load()?.records || [];
+    const byGroup = new Map();
+    old.forEach((r, i) => {
+      const g = groupKey(r);
+      if (!byGroup.has(g)) byGroup.set(g, []);
+      byGroup.get(g).push(i);
+    });
+    const drop = new Set();
+    let updated = 0;
+    for (const n of newRecords) {
+      const hit = (byGroup.get(groupKey(n)) || []).find(i => !drop.has(i) &&
+        (old[i].k === n.k || !old[i].cat || !n.cat));
+      if (hit !== undefined) { drop.add(hit); updated++; }
+    }
+    const records = [...old.filter((_, i) => !drop.has(i)), ...newRecords];
+    const prev = this.load()?.report || {};
+    return this.save(records, { ...report, kept: records.length, added: newRecords.length - updated, updated,
+                                rows: (prev.rows || 0) + report.rows, merged: (prev.merged || 0) + report.merged,
+                                partial: (prev.partial || 0) + report.partial,
+                                unknownIv: records.filter(r => !r.iv).length,
+                                noMoves: records.filter(r => !r.fast && !r.ch.length).length });
+  },
   exportBackup() {
-    return JSON.stringify({ app: "go-tools", version: 1, my: store.get(MY_KEY, null),
+    return JSON.stringify({ app: "go-tools", version: 2, my: store.get(MY_KEY, null),
                             hidden: [...this.hidden()], cutoff: this.cutoffDays() });
   },
   importBackup(text) {
@@ -138,28 +162,70 @@ const myStore = {
     if (b.app !== "go-tools" || !b.my) throw new Error("That file isn't a GO Tools backup.");
     try { localStorage.setItem("gotools:" + MY_KEY, JSON.stringify(b.my)); }
     catch { throw new Error("Not enough storage space on this device."); }
-    this.setHidden(new Set(b.hidden || [])); this.setCutoffDays(b.cutoff || 0);
+    this.setHidden(toHiddenMap(b.hidden)); this.setCutoffDays(b.cutoff || 0);
     myCache = undefined;
   },
   clear() { try { localStorage.removeItem("gotools:" + MY_KEY); } catch {} myCache = undefined; },
-  hidden() { return new Set(store.get(HIDDEN_KEY, [])); },
-  setHidden(set) { store.set(HIDDEN_KEY, [...set]); },
+  // Hidden = Map(key -> when it was marked gone). Scanning it again later brings it back.
+  hidden() { return toHiddenMap(store.get(HIDDEN_KEY, [])); },
+  setHidden(map) { store.set(HIDDEN_KEY, [...map]); },
   cutoffDays() { return store.get(CUTOFF_KEY, 0); },
   setCutoffDays(d) { store.set(CUTOFF_KEY, d); },
 };
 
-// Records currently in play: not hidden, and scanned recently enough.
+// Old saves stored a plain list of keys; treat those as hidden "now".
+function toHiddenMap(v) {
+  const now = Date.now();
+  return new Map((v || []).map(x => Array.isArray(x) ? x : [x, now]));
+}
+const scanTime = r => new Date(r.scan.replace(" ", "T")).getTime() || 0;
+// Pokémon identity without the catch date (used to match rescans).
+const groupKey = r => r.k.startsWith("u|") ? r.k : r.k.split("|").slice(0, 6).join("|");
+
+// Records currently in play: not marked gone (unless rescanned since), and scanned recently enough.
 function activeRecords() {
   const data = myStore.load();
   if (!data) return null;
   const hidden = myStore.hidden();
   const days = myStore.cutoffDays();
   const since = days ? Date.now() - days * 864e5 : 0;
-  return data.records.filter(r => !hidden.has(r.k) && (!since || new Date(r.scan.replace(" ", "T")) >= since));
+  return data.records.filter(r => {
+    const t = scanTime(r);
+    if (hidden.has(r.k) && hidden.get(r.k) >= t) return false;
+    return !since || t >= since;
+  });
 }
 
 /* ---------- Rank your own Pokémon against a boss ---------- */
 const MON_INDEX = new Map(MONS.map((m, i) => [m[0], i]));
+
+// Everything needed to simulate one of your Pokémon: stats at its level and the moves it has
+// (or, if the scan missed them, the moves it could have, marked as guessed).
+function prepareRecord(r) {
+  const m = MONS[MON_INDEX.get(r.mon)];
+  if (!m) return null;
+  const [, , types, , , , fast, charged, elite] = m;
+  const iv = r.iv || [10, 10, 10];
+  const normal = i => !elite.includes(i);
+  const known = name => MOVE_BY_NAME.get(moveNorm(name));
+  const myFast = r.fast ? known(r.fast) : undefined;
+  const myCh = r.ch.map(known).filter(i => i !== undefined);
+  const guessFast = myFast === undefined, guessCh = !myCh.length;
+  const fastC = guessFast ? fast.filter(normal) : [myFast];
+  const chC = guessCh ? charged.filter(normal) : myCh;
+  return {
+    r, m, types, guessFast, guessCh, fastC, chC,
+    st: statsFor(m, r.lv, iv[0], iv[1], iv[2], r.sh === 1),
+    statsAt: lv => statsFor(m, lv, iv[0], iv[1], iv[2], r.sh === 1),
+    // with a regular TM: current moves + every non-elite move
+    tmFast: [...new Set([...fastC, ...fast.filter(normal)])],
+    tmCh: [...new Set([...chC, ...charged.filter(normal)])],
+    // with an Elite TM: anything in its move pool
+    allFast: [...new Set([...fastC, ...fast])],
+    allCh: [...new Set([...chC, ...charged])],
+  };
+}
+
 function bestMine(bossMon, opts) {
   const recs = activeRecords();
   if (!recs) return null;
@@ -167,28 +233,17 @@ function bestMine(bossMon, opts) {
   const out = [];
   for (const r of recs) {
     if (r.sh === 1 && !opts.shadow) continue;
-    const m = MONS[MON_INDEX.get(r.mon)];
-    if (!m) continue;
-    const [, , types, , , , fast, charged, elite] = m;
-    const iv = r.iv || [10, 10, 10];
-    const st = statsFor(m, r.lv, iv[0], iv[1], iv[2], r.sh === 1);
-    const normal = i => !elite.includes(i);
-    const known = name => MOVE_BY_NAME.get(moveNorm(name));
-    const myFast = r.fast ? known(r.fast) : undefined;
-    const myCh = r.ch.map(known).filter(i => i !== undefined);
-    const guessFast = myFast === undefined, guessCh = !myCh.length;
-    const fastC = guessFast ? fast.filter(normal) : [myFast];
-    const chC = guessCh ? charged.filter(normal) : myCh;
-    const best = bestCycle(types, st.atk, boss, fastC, chC);
+    const p = prepareRecord(r);
+    if (!p) continue;
+    const best = bestCycle(p.types, p.st.atk, boss, p.fastC, p.chC);
     if (!best) continue;
     // Could a regular TM do better? (Elite moves need an Elite TM, so they are not suggested.)
     let tm = null;
-    if (!guessFast || !guessCh) {
-      const pot = bestCycle(types, st.atk, boss,
-        [...new Set([...fastC, ...fast.filter(normal)])], [...new Set([...chC, ...charged.filter(normal)])]);
+    if (!p.guessFast || !p.guessCh) {
+      const pot = bestCycle(p.types, p.st.atk, boss, p.tmFast, p.tmCh);
       if (pot && pot.dps > best.dps * 1.05) tm = { ...pot, gain: pot.dps / best.dps - 1 };
     }
-    out.push({ ...best, m, r, st, guessFast, guessCh, tm, score: rankScore(best.dps, st) });
+    out.push({ ...best, m: p.m, r, st: p.st, guessFast: p.guessFast, guessCh: p.guessCh, tm, score: rankScore(best.dps, p.st) });
   }
   return out.sort((x, y) => y.score - x.score);
 }

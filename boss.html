@@ -62,6 +62,9 @@
   .gone { margin-left: auto; font: inherit; font-size: 13px; color: var(--muted); background: none;
           border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; cursor: pointer; }
   .tm { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .find { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .find span { font-size: 12px; color: var(--muted); line-height: 1.35; }
+  .find-btn { flex: none; border-color: var(--accent) !important; color: var(--accent) !important; font-weight: 700; }
   .seg { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 3px; margin-bottom: 8px; }
   .seg button { flex: 1; font: inherit; font-size: 14px; font-weight: 600; padding: 8px; border: 0; border-radius: 9px;
                 background: none; color: var(--muted); cursor: pointer; }
@@ -156,7 +159,9 @@ function attackersHTML(boss) {
   const top = overall.length ? overall[0].score ** 0.25 : 1;
   if (mode === "all") {
     if (!overall.length) return `<p class="muted">No attackers found.</p>`;
-    return `<ol class="atk">` + overall.slice(0, shown).map((x, k) => {
+    const dex = [...new Set(overall.slice(0, 40).map(x => x.m[1]))].slice(0, 25);
+    findString = dex.join(",");
+    return findHTML("Find my counters in GO", "Copies a search for the top 25 species. Paste it into GO's Pokémon search to see which ones you own.") + `<ol class="atk">` + overall.slice(0, shown).map((x, k) => {
       const pct = Math.round(100 * x.score ** 0.25 / top);
       return `<li><span class="rank">${k + 1}</span>
         <span class="who">${esc(baseName(x.m[0]))}${tagsHTML(x.m[0], x.m[9])}</span>
@@ -170,7 +175,10 @@ function attackersHTML(boss) {
   if (!mine) return `<div class="empty" style="padding:16px">You haven't imported your Pokémon yet.<br>
     <a href="my-pokemon.html">Import your Poke Genie export →</a></div>`;
   if (!mine.length) return `<p class="muted">None of your Pokémon match. Check the filters, or the “ignore old scans” setting on <a href="my-pokemon.html">My Pokémon</a>.</p>`;
-  return `<ol class="atk mine">` + mine.slice(0, shown).map((x, k) => {
+  const pick = mine.slice(0, shown);
+  findString = [...new Set(pick.map(x => "cp" + x.r.cp))].join(",") + "&" + [...new Set(pick.map(x => x.m[1]))].join(",");
+  return findHTML("Find these in GO", "Copies a search for these exact Pokémon (by CP). If one has been powered up since your scan, it won't show.") +
+    `<ol class="atk mine">` + pick.map((x, k) => {
     const r = x.r;
     const pct = Math.min(100, Math.round(100 * x.score ** 0.25 / top));
     const iv = r.iv ? r.iv.join("/") : "IVs ?";
@@ -190,6 +198,19 @@ function attackersHTML(boss) {
   }).join("") + `</ol>` + (mine.length > shown ? `<button class="chip more" id="more">Show more</button>` : "") +
   `<p class="note">Bar = how close each one is to the best possible attacker. “?” = not scanned, so assumed.
     ✕ = you don't have it anymore (undo on <a href="my-pokemon.html">My Pokémon</a>).</p>`;
+}
+
+let findString = "";
+function findHTML(label, hint) {
+  return `<div class="find"><button class="chip find-btn" id="findInGo">⌕ ${label}</button><span>${hint}</span></div>`;
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch {
+    const ta = Object.assign(document.createElement("textarea"), { value: text });
+    document.body.append(ta); ta.select();
+    const ok = document.execCommand("copy"); ta.remove(); return ok;
+  }
 }
 
 function filtersHTML() {
@@ -255,12 +276,15 @@ main.addEventListener("click", e => {
   if (md) { mode = md.dataset.mode; store.set("boss-mode", mode); shown = 15; redrawAttackers(); }
   const h = e.target.closest("button[data-hide]");
   if (h) {
-    const set = myStore.hidden(); set.add(h.dataset.hide); myStore.setHidden(set);
+    const set = myStore.hidden(); set.set(h.dataset.hide, Date.now()); myStore.setHidden(set);
     lastHidden = h.dataset.hide;
     redrawAttackers();
     toast(`Marked as gone. <button id="undo">Undo</button>`);
   }
   if (e.target.id === "more") { shown += 15; redrawAttackers(); }
+  if (e.target.closest("#findInGo") && findString) {
+    copyText(findString).then(ok => toast(ok ? "Copied. Paste it into GO's search." : "Couldn't copy: " + esc(findString)));
+  }
 });
 let lastHidden = null;
 function toast(html) {

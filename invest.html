@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#1c1f25">
+<title>Power-Up Planner · GO Tools</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .head { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .head .topbar { border-bottom: 0; }
+  .tabs { display: flex; gap: 4px; padding: 0 12px 10px; }
+  .tabs button { flex: 1; font: inherit; font-size: 14px; font-weight: 600; padding: 8px 4px; border-radius: 10px;
+                 border: 1px solid var(--border); background: var(--bg); color: var(--muted); cursor: pointer; }
+  .tabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .page { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
+  .empty { padding: 28px 16px; text-align: center; color: var(--muted); line-height: 1.5; }
+  .intro { font-size: 13px; color: var(--muted); line-height: 1.45; margin: 4px 0 12px; }
+  h3.sec { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 18px 0 8px; }
+
+  /* type strength overview */
+  .tgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  @media (min-width: 480px) { .tgrid { grid-template-columns: repeat(6, 1fr); } }
+  .tcell { font: inherit; text-align: left; border: 2px solid transparent; border-radius: 10px; padding: 6px 8px;
+           background: var(--surface); cursor: pointer; color: var(--text); box-shadow: inset 4px 0 0 var(--tc); }
+  .tcell[aria-pressed="true"] { border-color: var(--accent); }
+  .tcell b { display: block; font-size: 12px; }
+  .tcell span { font-size: 11px; color: var(--muted); }
+  .meter { height: 4px; border-radius: 2px; background: var(--border); margin-top: 4px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--tc); }
+
+  /* lists */
+  .atk { list-style: none; margin: 0; padding: 0; }
+  .atk li {
+    display: grid; grid-template-columns: 24px 1fr auto; gap: 2px 8px; align-items: center;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 10px; margin-bottom: 6px;
+  }
+  .rank { color: var(--muted); font-weight: 700; font-size: 13px; grid-row: span 2; text-align: center; }
+  .who { font-weight: 700; font-size: 15px; min-width: 0; }
+  .tag { font-size: 10px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-left: 4px; vertical-align: 2px; }
+  .tag.shadow { background: #4b2a6b; color: #e6d2ff; }
+  .tag.puri { background: #6b5d2a; color: #fff3cc; }
+  .tag.lucky { background: #7a5c00; color: #ffe9a8; }
+  .num { font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; font-size: 14px; }
+  .num small { display: block; font-weight: 500; color: var(--muted); font-size: 10px; }
+  .detail, .moves, .bar, .extra { grid-column: 2 / span 2; }
+  .detail { font-size: 12px; color: var(--muted); }
+  .moves { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .mv { white-space: nowrap; }
+  .mv i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--tc); margin-right: 4px; }
+  .bar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--se); }
+  .extra { font-size: 13px; line-height: 1.5; }
+  .extra .up { color: var(--se); font-weight: 700; }
+  .extra .cost { color: var(--muted); }
+  .tm { color: var(--accent); font-weight: 600; }
+  .ref { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .row .chip { white-space: nowrap; }
+  .find-btn { border-color: var(--accent) !important; color: var(--accent) !important; font-weight: 700; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <header class="topbar">
+      <a class="back" href="./" aria-label="Back to tools">‹</a>
+      <h1>Power-Up Planner</h1>
+    </header>
+    <nav class="tabs" id="tabs">
+      <button data-tab="teams">Teams</button>
+      <button data-tab="power">Power-ups</button>
+      <button data-tab="moves">Moves</button>
+    </nav>
+  </div>
+  <main class="page" id="main"><div class="empty">Working it out…</div></main>
+  <div class="toast" id="toast"></div>
+
+<script src="types.js"></script>
+<script src="gamedata.js"></script>
+<script src="battle.js"></script>
+<script src="collection.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const fmt = n => Math.round(n).toLocaleString();
+const TEAM = 6;
+let tab = store.get("inv-tab", "teams");
+let selType = store.get("inv-type", "Ice");
+let target = store.get("inv-target", 40);
+const opts = Object.assign({ shadow: true }, store.get("inv-opts", {}));
+let R = null;   // computed results
+
+/* ---------- Analysis ---------- */
+function analyse() {
+  const recs = activeRecords();
+  if (!recs) return null;
+  const prepared = recs.filter(r => opts.shadow || r.sh !== 1).map(prepareRecord).filter(Boolean);
+  const teams = {}, refs = {}, pools = {};
+  for (const T of TYPES) {
+    const ti = TYPES.indexOf(T), boss = typeBoss(T);
+    const ofT = list => list.filter(c => MOVES[c][1] === ti);
+    // Best possible: any released non-Mega Pokémon, level 40, perfect IVs, any move incl. Elite TM.
+    let ref = null;
+    for (const m of MONS) {
+      if (!(m[9] & 4) || (m[9] & 2) || ((m[9] & 1) && !opts.shadow)) continue;
+      const ch = ofT(m[7]); if (!ch.length) continue;
+      const st = statsFor(m, 40, 15, 15, 15, m[9] & 1);
+      const b = bestCycle(m[2], st.atk, boss, m[6], ch);
+      if (b) { const sc = rankScore(b.dps, st); if (!ref || sc > ref.score) ref = { ...b, m, score: sc }; }
+    }
+    refs[T] = ref;
+    const list = [];
+    for (const p of prepared) {
+      const ch = ofT(p.chC); if (!ch.length) continue;
+      const b = bestCycle(p.types, p.st.atk, boss, p.fastC, ch);
+      if (!b) continue;
+      list.push({ ...b, p, T, boss, score: rankScore(b.dps, p.st) });
+    }
+    list.sort((a, b) => b.score - a.score);
+    pools[T] = list.slice(0, 40);
+    teams[T] = list.slice(0, TEAM);
+  }
+  return { teams, refs, pools, count: prepared.length };
+}
+
+const pctOf = (score, ref) => ref ? Math.min(100, Math.round(100 * (score / ref.score) ** 0.25)) : 0;
+
+/* ---------- Rendering helpers ---------- */
+function tags(r) {
+  return (r.sh === 1 ? `<span class="tag shadow">SHADOW</span>` : "") +
+         (r.sh === 2 ? `<span class="tag puri">PURIFIED</span>` : "") +
+         (r.lu ? `<span class="tag lucky">LUCKY</span>` : "");
+}
+const mv = (i, guessed) => `<span class="mv t-${TYPES[MOVES[i][1]].toLowerCase()}"><i></i>${esc(MOVES[i][0])}${guessed ? " ?" : ""}</span>`;
+const baseName = n => n.replace(/ \((Shadow|Mega[^)]*|Primal)\)/, "");
+const detail = r => `CP ${r.cp} · Lv ${r.lv} · ${r.iv ? r.iv.join("/") : "IVs ?"}`;
+
+/* ---------- Teams tab ---------- */
+function teamsHTML() {
+  const cells = TYPES.map(T => {
+    const t = R.teams[T], ref = R.refs[T];
+    const avg = t.length ? t.reduce((s, x) => s + pctOf(x.score, ref), 0) / TEAM : 0;
+    return { T, avg };
+  });
+  const weakest = [...cells].sort((a, b) => a.avg - b.avg).slice(0, 3).map(c => pill(c.T)).join(" ");
+  // Pokémon that show up in several type teams are the safest investments.
+  const counts = new Map();
+  for (const T of TYPES) R.teams[T].forEach(x => {
+    const k = x.p.r.k;
+    if (!counts.has(k)) counts.set(k, { x, types: [] });
+    counts.get(k).types.push(T);
+  });
+  const core = [...counts.values()].filter(c => c.types.length > 1).sort((a, b) => b.types.length - a.types.length).slice(0, 8);
+
+  const team = R.teams[selType], ref = R.refs[selType];
+  return `<p class="intro">Your best 6 attackers of each type, compared with the best possible
+      (level 40, perfect IVs). Tap a type. Shorter bars = types where you're weakest.</p>
+    <div class="tgrid">${cells.map(c => `<button class="tcell t-${c.T.toLowerCase()}" data-type="${c.T}" aria-pressed="${c.T === selType}">
+      <b>${c.T}</b><span>${Math.round(c.avg)}% of best</span><div class="meter"><i style="width:${Math.round(c.avg)}%"></i></div></button>`).join("")}</div>
+    <p class="ref" style="margin-top:10px">Weakest types to build up: ${weakest}</p>
+
+    <h3 class="sec">${pill(selType)} team</h3>
+    ${ref ? `<p class="ref">Best possible: <b>${esc(baseName(ref.m[0]))}</b>${ref.m[9] & 1 ? " (Shadow)" : ""} with ${esc(MOVES[ref.f][0])} / ${esc(MOVES[ref.c][0])} at ${ref.dps.toFixed(1)} DPS</p>` : ""}
+    ${team.length ? `<div class="row"><button class="chip find-btn" data-find="${esc(findFor(team))}">⌕ Find these in GO</button></div>
+      <ol class="atk">${team.map((x, k) => {
+        const r = x.p.r, pct = pctOf(x.score, ref);
+        return `<li><span class="rank">${k + 1}</span>
+          <span class="who">${esc(baseName(r.mon))}${tags(r)}</span>
+          <span class="num">${pct}%<small>of best</small></span>
+          <span class="detail">${detail(r)} · ${x.dps.toFixed(1)} DPS</span>
+          <span class="moves">${mv(x.f, x.p.guessFast)}${mv(x.c, x.p.guessCh)}</span>
+          <span class="bar"><span style="width:${pct}%"></span></span></li>`;
+      }).join("")}</ol>` : `<p class="muted">You don't have any ${selType} attackers in your list.</p>`}
+
+    ${core.length ? `<h3 class="sec">Most useful Pokémon</h3>
+      <p class="intro">These make your team for several types, so powering them up pays off most.</p>
+      <ol class="atk">${core.map((c, k) => `<li><span class="rank">${k + 1}</span>
+        <span class="who">${esc(baseName(c.x.p.r.mon))}${tags(c.x.p.r)}</span>
+        <span class="num">${c.types.length}<small>teams</small></span>
+        <span class="detail">${detail(c.x.p.r)}</span>
+        <span class="moves">${c.types.map(t => pill(t)).join(" ")}</span></li>`).join("")}</ol>` : ""}`;
+}
+
+/* ---------- Power-ups tab ---------- */
+function powerList() {
+  const seen = new Map();
+  // Candidates: your top 6 of every type. Judge each by the type it's best at.
+  for (const T of TYPES) R.teams[T].forEach((x, k) => {
+    const prev = seen.get(x.p.r.k);
+    if (!prev || k < prev.rank) seen.set(x.p.r.k, { x, rank: k });
+  });
+  const out = [];
+  for (const { x } of seen.values()) {
+    const r = x.p.r;
+    if (r.lv >= target) continue;
+    const st = x.p.statsAt(target);
+    const b = bestCycle(x.p.types, st.atk, x.boss, [x.f], [x.c]);
+    const gain = b.dps / x.dps - 1;
+    const cost = powerUpCost(r.lv, target, { shadow: r.sh === 1, purified: r.sh === 2, lucky: !!r.lu });
+    const newScore = rankScore(b.dps, st);
+    const pool = R.pools[x.T].filter(y => y.p.r.k !== r.k);
+    const newRank = pool.filter(y => y.score > newScore).length + 1;
+    const oldRank = R.teams[x.T].indexOf(x) + 1;
+    out.push({ x, gain, cost, newRank, oldRank, value: gain / Math.max(1, cost.dust / 100000) });
+  }
+  return out.sort((a, b) => b.value - a.value);
+}
+
+function powerHTML() {
+  const list = powerList();
+  return `<p class="intro">Your type-team Pokémon, ordered by how much stronger they get per stardust spent.
+      Costs include Shadow / Purified / Lucky adjustments.</p>
+    <div class="row">Power up to:
+      ${[40, 50].map(l => `<button class="chip" data-target="${l}" aria-pressed="${target === l}">Level ${l}</button>`).join("")}</div>
+    ${list.length ? `<ol class="atk">${list.slice(0, 30).map((y, k) => {
+      const x = y.x, r = x.p.r;
+      return `<li><span class="rank">${k + 1}</span>
+        <span class="who">${esc(baseName(r.mon))}${tags(r)}</span>
+        <span class="num">+${Math.round(y.gain * 100)}%<small>DPS</small></span>
+        <span class="detail">${detail(r)} · ${pill(x.T)} #${y.oldRank}${y.newRank < y.oldRank ? ` → #${y.newRank}` : ""}</span>
+        <span class="extra"><span class="up">Lv ${r.lv} → ${target}</span>
+          <span class="cost">· ${fmt(y.cost.dust)} dust · ${fmt(y.cost.candy)} candy${y.cost.xl ? ` · ${fmt(y.cost.xl)} XL` : ""}</span></span></li>`;
+    }).join("")}</ol>` : `<p class="muted">All of your team Pokémon are already level ${target} or higher.</p>`}`;
+}
+
+/* ---------- Moves tab ---------- */
+function movesHTML() {
+  const out = [];
+  const seen = new Set();
+  for (const T of TYPES) {
+    const ti = TYPES.indexOf(T);
+    for (const x of R.pools[T].slice(0, 15)) {
+      const p = x.p, key = p.r.k + T;
+      if (seen.has(key) || p.guessFast || p.guessCh) continue;   // only suggest when both moves were scanned
+      seen.add(key);
+      const tmB = bestCycle(p.types, p.st.atk, x.boss, p.tmFast, p.tmCh.filter(c => MOVES[c][1] === ti));
+      const elB = bestCycle(p.types, p.st.atk, x.boss, p.allFast, p.allCh.filter(c => MOVES[c][1] === ti));
+      let pick = null;
+      if (tmB && tmB.dps > x.dps * 1.05) pick = { ...tmB, kind: "TM" };
+      if (elB && elB.dps > Math.max(x.dps, tmB?.dps || 0) * 1.05) pick = { ...elB, kind: "Elite TM" };
+      if (!pick) continue;
+      const newScore = rankScore(pick.dps, p.st);
+      const newRank = R.pools[T].filter(y => y.p.r.k !== p.r.k && y.score > newScore).length + 1;
+      out.push({ x, T, pick, gain: pick.dps / x.dps - 1, newRank, oldRank: R.pools[T].indexOf(x) + 1 });
+    }
+  }
+  out.sort((a, b) => (a.newRank - b.newRank) || (b.gain - a.gain));
+  return `<p class="intro">Pokémon in your top 15 for a type that would hit much harder with a different move.</p>
+    ${out.length ? `<ol class="atk">${out.slice(0, 30).map((y, k) => {
+      const p = y.x.p, r = p.r, ch = [];
+      if (y.pick.f !== y.x.f) ch.push(mv(y.pick.f));
+      if (y.pick.c !== y.x.c) ch.push(mv(y.pick.c));
+      return `<li><span class="rank">${k + 1}</span>
+        <span class="who">${esc(baseName(r.mon))}${tags(r)}</span>
+        <span class="num">+${Math.round(y.gain * 100)}%<small>DPS</small></span>
+        <span class="detail">${detail(r)} · ${pill(y.T)} #${y.oldRank} → #${y.newRank}</span>
+        <span class="moves">${mv(y.x.f, p.guessFast)}${mv(y.x.c, p.guessCh)}</span>
+        <span class="extra"><span class="tm">${y.pick.kind} →</span> ${ch.join(" ")}</span></li>`;
+    }).join("")}</ol>` : `<p class="muted">No big move upgrades found.</p>`}`;
+}
+
+/* ---------- Search string for a list of your Pokémon ---------- */
+function findFor(list) {
+  return [...new Set(list.map(x => "cp" + x.p.r.cp))].join(",") + "&" + [...new Set(list.map(x => x.p.m[1]))].join(",");
+}
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 2500);
+}
+
+/* ---------- Page ---------- */
+function filtersHTML() {
+  return `<div class="row"><button class="chip" data-opt="shadow" aria-pressed="${opts.shadow}">Include Shadows</button>
+    <span class="muted" style="font-size:12px">${R.count.toLocaleString()} of your Pokémon considered</span></div>`;
+}
+function draw() {
+  $("tabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.tab === tab));
+  if (!R) {
+    $("main").innerHTML = `<div class="empty">Import your Pokémon first.<br><a href="my-pokemon.html">Go to My Pokémon →</a></div>`;
+    return;
+  }
+  $("main").innerHTML = filtersHTML() + (tab === "teams" ? teamsHTML() : tab === "power" ? powerHTML() : movesHTML()) +
+    `<p class="intro" style="margin-top:14px">Estimates vs a typical raid boss weak to that type, no weather boost.
+      “?” = not scanned, so assumed. Max level 50 (best buddy not included).</p>`;
+}
+function recompute() { R = analyse(); draw(); }
+
+$("tabs").addEventListener("click", e => {
+  const b = e.target.closest("[data-tab]"); if (!b) return;
+  tab = b.dataset.tab; store.set("inv-tab", tab); draw(); scrollTo(0, 0);
+});
+$("main").addEventListener("click", async e => {
+  const t = e.target.closest("[data-type]");
+  if (t) { selType = t.dataset.type; store.set("inv-type", selType); draw(); return; }
+  const g = e.target.closest("[data-target]");
+  if (g) { target = +g.dataset.target; store.set("inv-target", target); draw(); return; }
+  const o = e.target.closest("[data-opt]");
+  if (o) { opts[o.dataset.opt] = !opts[o.dataset.opt]; store.set("inv-opts", opts); $("main").innerHTML = `<div class="empty">Working it out…</div>`; setTimeout(recompute, 20); return; }
+  const f = e.target.closest("[data-find]");
+  if (f) {
+    try { await navigator.clipboard.writeText(f.dataset.find); toast("Copied. Paste it into GO's search."); }
+    catch { toast("Couldn't copy: " + f.dataset.find); }
+  }
+});
+
+$("tabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.tab === tab));
+setTimeout(recompute, 20);
+</script>
+</body>
+</html>
