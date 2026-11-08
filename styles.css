@@ -1,0 +1,89 @@
+/* Shared styles for the Pokémon GO tools site */
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --text: #1c1f24;
+  --muted: #5f6672;
+  --border: #d9dce1;
+  --accent: #2f6fde;
+  --se: #2e9d4f;        /* super effective */
+  --se-bg: #d7f2df;
+  --nve: #c0392b;       /* not very effective */
+  --nve-bg: #fbe0dc;
+  --imm: #ffffff;       /* "immune" (double resist in GO) */
+  --imm-bg: #7a1f17;
+  --hl: rgba(47, 111, 222, 0.14);
+  --hl-strong: rgba(47, 111, 222, 0.32);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121418;
+    --surface: #1c1f25;
+    --text: #e8eaee;
+    --muted: #9aa1ad;
+    --border: #30343c;
+    --accent: #6b9cff;
+    --se: #7ee2a0;
+    --se-bg: #1d4a2c;
+    --nve: #ffa69b;
+    --nve-bg: #4d2420;
+    --imm: #ffd9d4;
+    --imm-bg: #8f2a20;
+    --hl: rgba(107, 156, 255, 0.16);
+    --hl-strong: rgba(107, 156, 255, 0.36);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+a { color: var(--accent); }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: 17px; margin: 0; flex: 1; }
+.topbar a.back { text-decoration: none; font-size: 22px; line-height: 1; padding: 0 4px; }
+
+button.chip {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+button.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Type colors */
+.t-normal   { --tc: #9fa19f; }
+.t-fire     { --tc: #e62829; }
+.t-water    { --tc: #2980ef; }
+.t-electric { --tc: #e5b800; }
+.t-grass    { --tc: #3fa129; }
+.t-ice      { --tc: #3dcef3; }
+.t-fighting { --tc: #ff8000; }
+.t-poison   { --tc: #9141cb; }
+.t-ground   { --tc: #915121; }
+.t-flying   { --tc: #81b9ef; }
+.t-psychic  { --tc: #ef4179; }
+.t-bug      { --tc: #91a119; }
+.t-rock     { --tc: #afa981; }
+.t-ghost    { --tc: #704170; }
+.t-dragon   { --tc: #5060e1; }
+.t-dark     { --tc: #624d4e; }
+.t-steel    { --tc: #60a1b8; }
+.t-fairy    { --tc: #ef70ef; }

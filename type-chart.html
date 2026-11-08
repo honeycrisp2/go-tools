@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Type Chart · GO Tools</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  body { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+    font-size: 12px; color: var(--muted);
+  }
+  .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
+
+  /* The scroll box: both sticky edges are relative to THIS element */
+  .scroller {
+    flex: 1;
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table {
+    border-collapse: separate;   /* sticky cells keep their borders */
+    border-spacing: 0;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  th, td {
+    width: 40px; min-width: 40px; height: 34px;
+    text-align: center; padding: 0;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  /* Sticky top row (defending types) */
+  thead th {
+    position: sticky; top: 0; z-index: 2;
+    height: 38px;
+  }
+  /* Sticky left column (attacking types) */
+  tbody th {
+    position: sticky; left: 0; z-index: 1;
+    width: 78px; min-width: 78px;
+    text-align: left; padding-left: 4px;
+  }
+  /* Top-left corner sticks in both directions */
+  thead th.corner {
+    left: 0; z-index: 3;
+    width: 78px; min-width: 78px;
+    font-size: 10px; line-height: 1.15; color: var(--muted);
+    text-align: left; padding: 2px 4px;
+  }
+  .corner b { color: var(--text); }
+
+  .pill {
+    display: inline-block; border-radius: 5px;
+    background: var(--tc); color: #fff;
+    font-weight: 700; font-size: 11px; letter-spacing: .2px;
+    text-shadow: 0 1px 1px rgba(0,0,0,.35);
+    padding: 4px 0; width: 36px; text-align: center;
+  }
+  tbody th .pill { width: 70px; font-size: 12px; }
+
+  th { cursor: pointer; user-select: none; }
+
+  td { font-weight: 600; cursor: pointer; }
+  td.se  { background: var(--se-bg);  color: var(--se); }
+  td.nve { background: var(--nve-bg); color: var(--nve); }
+  td.imm { background: var(--imm-bg); color: var(--imm); }
+
+  /* Crosshair highlight */
+  td.hl-row, td.hl-col { box-shadow: inset 0 0 0 999px var(--hl); }
+  td.hl-cell { box-shadow: inset 0 0 0 999px var(--hl-strong); outline: 2px solid var(--accent); outline-offset: -2px; }
+  th.hl { box-shadow: inset 0 0 0 999px var(--hl-strong); }
+
+  .readout {
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    background: var(--surface); border-top: 1px solid var(--border);
+    font-size: 14px; min-height: 40px;
+  }
+  .readout .muted { color: var(--muted); }
+  .readout .pill { width: auto; padding: 2px 6px; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="back" href="./" aria-label="Back to tools">‹</a>
+    <h1>Type Chart</h1>
+    <button class="chip" id="flip" aria-pressed="false" title="Swap rows and columns">⇄ Flip</button>
+  </header>
+
+  <div class="controls">
+    <button class="chip" id="mode" aria-pressed="false">Show ×2 / ½</button>
+    <div class="legend">
+      <span><i style="background:var(--se-bg);outline:1px solid var(--se)"></i>1.6×</span>
+      <span><i style="background:var(--nve-bg);outline:1px solid var(--nve)"></i>0.625×</span>
+      <span><i style="background:var(--imm-bg)"></i>0.39×</span>
+    </div>
+  </div>
+
+  <div class="scroller" id="scroller">
+    <table id="chart"></table>
+  </div>
+
+  <div class="readout" id="readout"><span class="muted">Tap a cell to see the matchup. Tap a type to highlight its row/column.</span></div>
+
+<script>
+const TYPES = ["Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison","Ground",
+               "Flying","Psychic","Bug","Rock","Ghost","Dragon","Dark","Steel","Fairy"];
+const ABBR = {Normal:"NOR",Fire:"FIR",Water:"WAT",Electric:"ELE",Grass:"GRA",Ice:"ICE",
+  Fighting:"FIG",Poison:"POI",Ground:"GRO",Flying:"FLY",Psychic:"PSY",Bug:"BUG",Rock:"ROC",
+  Ghost:"GHO",Dragon:"DRA",Dark:"DAR",Steel:"STE",Fairy:"FAI"};
+
+// Attacking type -> { defending type: tier }  (2 = super effective, 0.5 = resisted, 0 = "immune")
+const EFF = {
+  Normal:   {Rock:.5, Ghost:0, Steel:.5},
+  Fire:     {Fire:.5, Water:.5, Grass:2, Ice:2, Bug:2, Rock:.5, Dragon:.5, Steel:2},
+  Water:    {Fire:2, Water:.5, Grass:.5, Ground:2, Rock:2, Dragon:.5},
+  Electric: {Water:2, Electric:.5, Grass:.5, Ground:0, Flying:2, Dragon:.5},
+  Grass:    {Fire:.5, Water:2, Grass:.5, Poison:.5, Ground:2, Flying:.5, Bug:.5, Rock:2, Dragon:.5, Steel:.5},
+  Ice:      {Fire:.5, Water:.5, Grass:2, Ice:.5, Ground:2, Flying:2, Dragon:2, Steel:.5},
+  Fighting: {Normal:2, Ice:2, Poison:.5, Flying:.5, Psychic:.5, Bug:.5, Rock:2, Ghost:0, Dark:2, Steel:2, Fairy:.5},
+  Poison:   {Grass:2, Poison:.5, Ground:.5, Rock:.5, Ghost:.5, Steel:0, Fairy:2},
+  Ground:   {Fire:2, Electric:2, Grass:.5, Poison:2, Flying:0, Bug:.5, Rock:2, Steel:2},
+  Flying:   {Electric:.5, Grass:2, Fighting:2, Bug:2, Rock:.5, Steel:.5},
+  Psychic:  {Fighting:2, Poison:2, Psychic:.5, Dark:0, Steel:.5},
+  Bug:      {Fire:.5, Grass:2, Fighting:.5, Poison:.5, Flying:.5, Psychic:2, Ghost:.5, Dark:2, Steel:.5, Fairy:.5},
+  Rock:     {Fire:2, Ice:2, Fighting:.5, Ground:.5, Flying:2, Bug:2, Steel:.5},
+  Ghost:    {Normal:0, Psychic:2, Ghost:2, Dark:.5},
+  Dragon:   {Dragon:2, Steel:.5, Fairy:0},
+  Dark:     {Fighting:.5, Psychic:2, Ghost:2, Dark:.5, Fairy:.5},
+  Steel:    {Fire:.5, Water:.5, Electric:.5, Ice:2, Rock:2, Steel:.5, Fairy:2},
+  Fairy:    {Fire:.5, Fighting:2, Poison:.5, Dragon:2, Dark:2, Steel:.5},
+};
+const tier = (atk, def) => EFF[atk][def] ?? 1;
+
+// Pokémon GO multipliers
+const GO = { 2: "1.6", 0.5: ".625", 0: ".39", 1: "" };
+const CLASSIC = { 2: "×2", 0.5: "½", 0: "¼", 1: "" };
+const CLS = { 2: "se", 0.5: "nve", 0: "imm", 1: "" };
+const WORDS = { 2: "super effective (1.6×)", 0.5: "not very effective (0.625×)",
+                0: "double resisted (0.39×)", 1: "neutral (1×)" };
+
+let flipped = false;   // false: rows = attacker, cols = defender
+let classic = false;
+let sel = null;        // {r, c} indexes, either may be null
+
+const table = document.getElementById("chart");
+const readout = document.getElementById("readout");
+const pill = t => `<span class="pill t-${t.toLowerCase()}">${t}</span>`;
+
+function render() {
+  const rowLabel = flipped ? "DEF" : "ATK";
+  const colLabel = flipped ? "ATK" : "DEF";
+  let html = `<thead><tr><th class="corner"><b>${rowLabel}</b> ↓<br><b>${colLabel}</b> →</th>`;
+  TYPES.forEach((t, c) => {
+    html += `<th data-c="${c}" title="${t}"><span class="pill t-${t.toLowerCase()}">${ABBR[t]}</span></th>`;
+  });
+  html += `</tr></thead><tbody>`;
+  TYPES.forEach((rowT, r) => {
+    html += `<tr><th data-r="${r}">${pill(rowT)}</th>`;
+    TYPES.forEach((colT, c) => {
+      const v = flipped ? tier(colT, rowT) : tier(rowT, colT);
+      html += `<td data-r="${r}" data-c="${c}" class="${CLS[v]}">${(classic ? CLASSIC : GO)[v]}</td>`;
+    });
+    html += `</tr>`;
+  });
+  table.innerHTML = html + `</tbody>`;
+  applyHighlight();
+}
+
+function applyHighlight() {
+  table.querySelectorAll(".hl-row,.hl-col,.hl-cell,.hl").forEach(el =>
+    el.classList.remove("hl-row", "hl-col", "hl-cell", "hl"));
+  if (!sel) return;
+  const {r, c} = sel;
+  if (r != null) {
+    table.querySelectorAll(`td[data-r="${r}"]`).forEach(el => el.classList.add("hl-row"));
+    table.querySelector(`tbody th[data-r="${r}"]`).classList.add("hl");
+  }
+  if (c != null) {
+    table.querySelectorAll(`td[data-c="${c}"]`).forEach(el => el.classList.add("hl-col"));
+    table.querySelector(`thead th[data-c="${c}"]`).classList.add("hl");
+  }
+  if (r != null && c != null) {
+    table.querySelector(`td[data-r="${r}"][data-c="${c}"]`).classList.add("hl-cell");
+  }
+}
+
+function describe() {
+  if (!sel) {
+    readout.innerHTML = `<span class="muted">Tap a cell to see the matchup. Tap a type to highlight its row/column.</span>`;
+    return;
+  }
+  const {r, c} = sel;
+  const atkIdx = flipped ? c : r, defIdx = flipped ? r : c;
+  if (r != null && c != null) {
+    const atk = TYPES[atkIdx], def = TYPES[defIdx];
+    readout.innerHTML = `${pill(atk)} attacking ${pill(def)} is <b>${WORDS[tier(atk, def)]}</b>`;
+  } else if (atkIdx != null) {
+    const atk = TYPES[atkIdx];
+    const strong = TYPES.filter(d => tier(atk, d) === 2);
+    readout.innerHTML = `${pill(atk)} moves hit hard: ` +
+      (strong.length ? strong.map(pill).join(" ") : `<span class="muted">nothing</span>`);
+  } else {
+    const def = TYPES[defIdx];
+    const weak = TYPES.filter(a => tier(a, def) === 2);
+    readout.innerHTML = `${pill(def)} is weak to: ` + weak.map(pill).join(" ");
+  }
+}
+
+table.addEventListener("click", e => {
+  const cell = e.target.closest("td, th");
+  if (!cell || cell.classList.contains("corner")) { sel = null; }
+  else {
+    const r = cell.dataset.r != null ? +cell.dataset.r : null;
+    const c = cell.dataset.c != null ? +cell.dataset.c : null;
+    const same = sel && sel.r === r && sel.c === c;
+    sel = same ? null : {r, c};
+  }
+  applyHighlight();
+  describe();
+});
+
+document.getElementById("flip").addEventListener("click", e => {
+  flipped = !flipped;
+  e.currentTarget.setAttribute("aria-pressed", flipped);
+  if (sel) sel = {r: sel.c, c: sel.r};
+  render(); describe();
+});
+document.getElementById("mode").addEventListener("click", e => {
+  classic = !classic;
+  e.currentTarget.setAttribute("aria-pressed", classic);
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
