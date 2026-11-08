@@ -56,6 +56,19 @@
   .bar { grid-column: 2 / span 2; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
   .bar span { display: block; height: 100%; background: var(--se); }
   .more { width: 100%; margin-top: 4px; }
+  .tag.puri { background: #6b5d2a; color: #fff3cc; }
+  .tag.lucky { background: #7a5c00; color: #ffe9a8; }
+  .atk .detail { grid-column: 2 / span 2; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .gone { margin-left: auto; font: inherit; font-size: 13px; color: var(--muted); background: none;
+          border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; cursor: pointer; }
+  .tm { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .seg { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 3px; margin-bottom: 8px; }
+  .seg button { flex: 1; font: inherit; font-size: 14px; font-weight: 600; padding: 8px; border: 0; border-radius: 9px;
+                background: none; color: var(--muted); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .toast.show { pointer-events: auto; }
+  .toast button { font: inherit; font-weight: 700; color: inherit; background: none; border: 0; text-decoration: underline; margin-left: 6px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -71,9 +84,12 @@
   </div>
 
   <main id="main"></main>
+  <div class="toast" id="toast"></div>
 
 <script src="types.js"></script>
 <script src="gamedata.js"></script>
+<script src="battle.js"></script>
+<script src="collection.js"></script>
 <script>
 const main = document.getElementById("main");
 const q = document.getElementById("q");
@@ -116,76 +132,80 @@ function showHome() {
   main.innerHTML = `<div class="empty">Search for a raid boss to see its weaknesses<br>and the best Pokémon to bring.</div>`;
 }
 
-/* ---------- Best attackers ----------
-   Estimate, in the style of common raid calculators: level 40 attackers with perfect IVs,
-   no weather, no dodging. Damage = floor(0.5 × power × atk/def × STAB × effectiveness) + 1.
-   DPS uses a fast-move/charged-move cycle. Ranking weighs damage speed and bulk
-   (DPS³ × TDO, where TDO grows with DPS × HP × DEF), so glass cannons do not dominate. */
-const CPM40 = 0.7903, BOSS_CPM = 0.79;
-function bestAttackers(boss) {
-  const bossTypes = boss[2].map(i => TYPES[i]);
-  const bossDef = (boss[4] + 15) * BOSS_CPM;
-  const out = [];
-  for (const m of MONS) {
-    const [name, , types, a, d, h, fast, charged, elite, flags] = m;
-    if (!(flags & 4)) continue;                 // not released
-    if ((flags & 1) && !opts.shadow) continue;
-    if ((flags & 2) && !opts.mega) continue;
-    const shadow = flags & 1;
-    const atk = (a + 15) * CPM40 * (shadow ? 1.2 : 1);
-    const def = (d + 15) * CPM40 * (shadow ? 5 / 6 : 1);
-    const hp = Math.floor((h + 15) * CPM40);
-    const ok = i => opts.elite || !elite.includes(i);
-    const dmg = mv => {
-      const [, t, power] = MOVES[mv];
-      const stab = types.includes(t) ? 1.2 : 1;
-      return Math.floor(0.5 * power * atk / bossDef * stab * 1.6 ** steps(TYPES[t], bossTypes)) + 1;
-    };
-    let best = null;
-    for (const f of fast) {
-      if (!ok(f)) continue;
-      const fd = dmg(f), fdur = MOVES[f][3], fe = MOVES[f][4];
-      if (fe <= 0) continue;
-      for (const c of charged) {
-        if (!ok(c)) continue;
-        const cost = -MOVES[c][4];
-        if (cost <= 0) continue;
-        const n = Math.ceil(cost / fe);
-        const dps = (n * fd + dmg(c)) / ((n * fdur + MOVES[c][3]) / 1000);
-        if (!best || dps > best.dps) best = { dps, f, c };
-      }
-    }
-    if (!best) continue;
-    best.score = best.dps ** 4 * hp * def;
-    best.m = m;
-    out.push(best);
-  }
-  out.sort((x, y) => y.score - x.score);
-  return out;
-}
+let mode = store.get("boss-mode", "all");   // "all" or "mine"
 
-function moveHTML(i, m) {
+function moveHTML(i, m, guessed) {
   const [name, t] = MOVES[i];
-  return `<span class="mv t-${TYPES[t].toLowerCase()}${m[8].includes(i) ? " elite" : ""}"><i></i>${esc(name)}</span>`;
+  return `<span class="mv t-${TYPES[t].toLowerCase()}${m[8].includes(i) ? " elite" : ""}"><i></i>${esc(name)}${guessed ? " ?" : ""}</span>`;
 }
+function tagsHTML(name, flags, r) {
+  let t = "";
+  if (r ? r.sh === 1 : flags & 1) t += `<span class="tag shadow">SHADOW</span>`;
+  if (r && r.sh === 2) t += `<span class="tag puri">PURIFIED</span>`;
+  if (r && r.lu) t += `<span class="tag lucky">LUCKY</span>`;
+  if (!r && flags & 2) {
+    const xy = (name.match(/Mega (X|Y|Z)/) || [])[1];
+    t += `<span class="tag mega">${/Primal/.test(name) ? "PRIMAL" : "MEGA"}${xy ? " " + xy : ""}</span>`;
+  }
+  return t;
+}
+const baseName = n => n.replace(/ \((Shadow|Mega[^)]*|Primal)\)/, "");
 
 function attackersHTML(boss) {
-  const list = bestAttackers(boss);
-  if (!list.length) return `<p class="muted">No attackers found.</p>`;
-  const top = list[0].score ** 0.25;
-  return `<ol class="atk">` + list.slice(0, shown).map((x, k) => {
-    const m = x.m;
-    const base = m[0].replace(/ \((Shadow|Mega[^)]*|Primal)\)/, "");
-    const tag = (m[9] & 1 ? `<span class="tag shadow">SHADOW</span>` : "") +
-                (m[9] & 2 ? `<span class="tag mega">${/Primal/.test(m[0]) ? "PRIMAL" : "MEGA"}${(m[0].match(/Mega (X|Y|Z)/) || [, ""])[1] ? " " + m[0].match(/Mega (X|Y|Z)/)[1] : ""}</span>` : "");
-    const pct = Math.round(100 * x.score ** 0.25 / top);
+  const overall = bestOverall(boss, opts);
+  const top = overall.length ? overall[0].score ** 0.25 : 1;
+  if (mode === "all") {
+    if (!overall.length) return `<p class="muted">No attackers found.</p>`;
+    return `<ol class="atk">` + overall.slice(0, shown).map((x, k) => {
+      const pct = Math.round(100 * x.score ** 0.25 / top);
+      return `<li><span class="rank">${k + 1}</span>
+        <span class="who">${esc(baseName(x.m[0]))}${tagsHTML(x.m[0], x.m[9])}</span>
+        <span class="dps">${x.dps.toFixed(1)}<small>DPS</small></span>
+        <span class="moves">${moveHTML(x.f, x.m)}${moveHTML(x.c, x.m)}</span>
+        <span class="bar"><span style="width:${pct}%"></span></span></li>`;
+    }).join("") + `</ol>` + (overall.length > shown ? `<button class="chip more" id="more">Show more</button>` : "");
+  }
+
+  const mine = bestMine(boss, opts);
+  if (!mine) return `<div class="empty" style="padding:16px">You haven't imported your Pokémon yet.<br>
+    <a href="my-pokemon.html">Import your Poke Genie export →</a></div>`;
+  if (!mine.length) return `<p class="muted">None of your Pokémon match. Check the filters, or the “ignore old scans” setting on <a href="my-pokemon.html">My Pokémon</a>.</p>`;
+  return `<ol class="atk mine">` + mine.slice(0, shown).map((x, k) => {
+    const r = x.r;
+    const pct = Math.min(100, Math.round(100 * x.score ** 0.25 / top));
+    const iv = r.iv ? r.iv.join("/") : "IVs ?";
+    let tm = "";
+    if (x.tm) {
+      const parts = [];
+      if (x.tm.f !== x.f) parts.push(esc(MOVES[x.tm.f][0]));
+      if (x.tm.c !== x.c) parts.push(esc(MOVES[x.tm.c][0]));
+      tm = `<span class="tm">TM → ${parts.join(" + ")}: +${Math.round(x.tm.gain * 100)}% DPS</span>`;
+    }
     return `<li><span class="rank">${k + 1}</span>
-      <span class="who">${esc(base)}${tag}</span>
+      <span class="who">${esc(baseName(r.mon))}${tagsHTML(r.mon, 0, r)}</span>
       <span class="dps">${x.dps.toFixed(1)}<small>DPS</small></span>
-      <span class="moves">${moveHTML(x.f, m)}${moveHTML(x.c, m)}</span>
-      <span class="bar"><span style="width:${pct}%"></span></span></li>`;
-  }).join("") + `</ol>` +
-  (list.length > shown ? `<button class="chip more" id="more">Show more</button>` : "");
+      <span class="detail">CP ${r.cp} · Lv ${r.lv} · ${iv}<button class="gone" data-hide="${esc(r.k)}" aria-label="I don't have this anymore">✕</button></span>
+      <span class="moves">${moveHTML(x.f, x.m, x.guessFast)}${moveHTML(x.c, x.m, x.guessCh)}${tm}</span>
+      <span class="bar" title="${pct}% of the best possible attacker"><span style="width:${pct}%"></span></span></li>`;
+  }).join("") + `</ol>` + (mine.length > shown ? `<button class="chip more" id="more">Show more</button>` : "") +
+  `<p class="note">Bar = how close each one is to the best possible attacker. “?” = not scanned, so assumed.
+    ✕ = you don't have it anymore (undo on <a href="my-pokemon.html">My Pokémon</a>).</p>`;
+}
+
+function filtersHTML() {
+  return `<div class="seg">
+      <button data-mode="all" aria-pressed="${mode === "all"}">Best overall</button>
+      <button data-mode="mine" aria-pressed="${mode === "mine"}">My Pokémon</button>
+    </div>
+    <div class="filters">
+      <button class="chip" data-opt="shadow" aria-pressed="${opts.shadow}">Shadow</button>
+      ${mode === "all" ? `<button class="chip" data-opt="mega" aria-pressed="${opts.mega}">Mega / Primal</button>
+      <button class="chip" data-opt="elite" aria-pressed="${opts.elite}">Legacy moves †</button>` : ""}
+    </div>`;
+}
+function redrawAttackers() {
+  document.getElementById("atkFilters").innerHTML = filtersHTML();
+  document.getElementById("atk").innerHTML = attackersHTML(MONS[current]);
 }
 
 function showBoss(i, remember = true) {
@@ -197,14 +217,10 @@ function showBoss(i, remember = true) {
     <div class="card-types">${t.map(x => pill(x)).join("")}</div>
     ${matchupHTML(t)}
     <h3 class="mu-h">Best attackers</h3>
-    <div class="filters">
-      <button class="chip" data-opt="shadow" aria-pressed="${opts.shadow}">Shadow</button>
-      <button class="chip" data-opt="mega" aria-pressed="${opts.mega}">Mega / Primal</button>
-      <button class="chip" data-opt="elite" aria-pressed="${opts.elite}">Legacy moves †</button>
-    </div>
+    <div id="atkFilters">${filtersHTML()}</div>
     <div id="atk">${attackersHTML(m)}</div>
-    <p class="note">Estimated for level 40, perfect IVs, no weather boost. Ranked by damage speed and bulk.
-      † = Elite TM / legacy move. Shadow bosses have the same types as normal ones.</p>
+    <p class="note">Estimates with no weather boost, ranked by damage speed and bulk. “Best overall” assumes level 40
+      with perfect IVs. † = Elite TM / legacy move. Shadow bosses have the same types as normal ones.</p>
   </div>`;
   if (remember) {
     recents = [m[0], ...recents.filter(n => n !== m[0])].slice(0, 10);
@@ -233,13 +249,30 @@ main.addEventListener("click", e => {
   if (o) {
     opts[o.dataset.opt] = !opts[o.dataset.opt];
     store.set("boss-opts", opts);
-    o.setAttribute("aria-pressed", opts[o.dataset.opt]);
-    document.getElementById("atk").innerHTML = attackersHTML(MONS[current]);
+    redrawAttackers();
   }
-  if (e.target.id === "more") {
-    shown += 15;
-    document.getElementById("atk").innerHTML = attackersHTML(MONS[current]);
+  const md = e.target.closest("button[data-mode]");
+  if (md) { mode = md.dataset.mode; store.set("boss-mode", mode); shown = 15; redrawAttackers(); }
+  const h = e.target.closest("button[data-hide]");
+  if (h) {
+    const set = myStore.hidden(); set.add(h.dataset.hide); myStore.setHidden(set);
+    lastHidden = h.dataset.hide;
+    redrawAttackers();
+    toast(`Marked as gone. <button id="undo">Undo</button>`);
   }
+  if (e.target.id === "more") { shown += 15; redrawAttackers(); }
+});
+let lastHidden = null;
+function toast(html) {
+  const t = document.getElementById("toast");
+  t.innerHTML = html; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 6000);
+}
+document.getElementById("toast").addEventListener("click", e => {
+  if (e.target.id !== "undo" || !lastHidden) return;
+  const set = myStore.hidden(); set.delete(lastHidden); myStore.setHidden(set);
+  lastHidden = null; document.getElementById("toast").classList.remove("show");
+  redrawAttackers();
 });
 recentsEl.addEventListener("click", e => {
   const b = e.target.closest("button[data-i]");

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#1c1f25">
+<title>My Pokémon · GO Tools</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+  .card h2 { font-size: 16px; margin: 0 0 6px; }
+  .card p { margin: 0 0 10px; font-size: 14px; line-height: 1.5; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 4px; }
+  .stat { background: var(--bg); border-radius: 10px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .file { display: block; }
+  .file input { display: none; }
+  .file .big { display: block; text-align: center; }
+  select { font: inherit; font-size: 16px; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+           background: var(--surface); color: var(--text); width: 100%; }
+  .hidden-list { list-style: none; padding: 0; margin: 8px 0 0; max-height: 260px; overflow: auto; }
+  .hidden-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .hidden-list li span { flex: 1; min-width: 0; }
+  .err { color: var(--nve); font-weight: 600; }
+  .ok { color: var(--se); font-weight: 600; }
+  .btnrow .chip { margin-top: 4px; }
+  ol.steps { margin: 0 0 10px; padding-left: 20px; font-size: 14px; line-height: 1.6; }
+  .danger { color: var(--nve) !important; border-color: var(--nve) !important; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="back" href="./" aria-label="Back to tools">‹</a>
+    <h1>My Pokémon</h1>
+  </header>
+
+  <main class="page">
+    <div class="card" id="summary"></div>
+
+    <div class="card">
+      <h2>Import from Poke Genie</h2>
+      <ol class="steps">
+        <li>In Poke Genie, open your scan history and export it as a CSV file.</li>
+        <li>Tap the button below and pick that file.</li>
+      </ol>
+      <p class="muted" style="font-size:13px">Duplicates and repeat scans are merged automatically. A new import replaces the old one,
+        but Pokémon you've marked as gone stay hidden. <b>Your file never leaves this device.</b></p>
+      <label class="file"><input type="file" id="csv" accept=".csv,text/csv"><span class="big" role="button">⬆ Import CSV</span></label>
+      <p id="importMsg" style="margin:10px 0 0"></p>
+    </div>
+
+    <div class="card">
+      <h2>Ignore old scans</h2>
+      <p>Pokémon you haven't scanned in a while may have been traded or transferred.</p>
+      <select id="cutoff">
+        <option value="0">Use every scan</option>
+        <option value="7">Only scanned in the last week</option>
+        <option value="14">Only scanned in the last 2 weeks</option>
+        <option value="30">Only scanned in the last month</option>
+        <option value="90">Only scanned in the last 3 months</option>
+        <option value="180">Only scanned in the last 6 months</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <h2>Marked as gone</h2>
+      <p>Tap <b>✕</b> on any of your Pokémon in Boss Lookup to hide it here.</p>
+      <div id="hidden"></div>
+    </div>
+
+    <div class="card">
+      <h2>Backup &amp; other devices</h2>
+      <p>Save everything (your Pokémon, hidden list, settings) to a file, then load it on another phone or browser.</p>
+      <div class="btnrow">
+        <button class="chip" id="export">⬇ Save backup</button>
+        <label class="chip" style="cursor:pointer">⬆ Load backup<input type="file" id="backup" accept=".json,application/json" style="display:none"></label>
+        <button class="chip danger" id="clear">Delete my data</button>
+      </div>
+      <p id="backupMsg" style="margin:10px 0 0"></p>
+    </div>
+  </main>
+
+<script src="types.js"></script>
+<script src="gamedata.js"></script>
+<script src="battle.js"></script>
+<script src="collection.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const n = x => x.toLocaleString();
+
+function drawSummary() {
+  const data = myStore.load();
+  if (!data) {
+    $("summary").innerHTML = `<h2>No Pokémon yet</h2><p>Import your Poke Genie export below. Boss Lookup will then
+      have a <b>My Pokémon</b> tab that ranks the attackers you actually own.</p>`;
+    return;
+  }
+  const r = data.report, active = activeRecords().length;
+  $("summary").innerHTML = `<h2>Your collection</h2>
+    <p class="muted" style="font-size:13px">Imported ${new Date(data.imported).toLocaleString()}</p>
+    <div class="stats">
+      <div class="stat"><b>${n(active)}</b><span>Pokémon in use</span></div>
+      <div class="stat"><b>${n(r.kept)}</b><span>after clean-up (from ${n(r.rows)} rows)</span></div>
+      <div class="stat"><b>${n(r.merged + r.partial)}</b><span>duplicate scans merged</span></div>
+      <div class="stat"><b>${n(myStore.hidden().size)}</b><span>marked as gone</span></div>
+    </div>
+    <p class="muted" style="font-size:13px;margin:6px 0 0">${n(r.noMoves)} have no moves scanned and ${n(r.unknownIv)} have no IVs.
+      For those, Boss Lookup assumes their best regular moves or average IVs and marks them with “?”.</p>
+    <p style="margin:10px 0 0"><a href="boss.html">Open Boss Lookup →</a></p>`;
+}
+
+function drawHidden() {
+  const data = myStore.load(), hidden = myStore.hidden();
+  if (!hidden.size) { $("hidden").innerHTML = `<p class="muted" style="margin:0">Nothing hidden.</p>`; return; }
+  const byKey = new Map((data?.records || []).map(r => [r.k, r]));
+  const items = [...hidden].map(k => {
+    const r = byKey.get(k);
+    const label = r ? `${esc(r.mon)}${r.sh === 1 ? " (Shadow)" : ""} · CP ${r.cp}${r.iv ? " · " + r.iv.join("/") : ""}` : `<span class="muted">Not in current import</span>`;
+    return `<li><span>${label}</span><button class="chip" data-unhide="${esc(k)}">Restore</button></li>`;
+  });
+  $("hidden").innerHTML = `<button class="chip" id="unhideAll">Restore all ${hidden.size}</button><ul class="hidden-list">${items.join("")}</ul>`;
+}
+
+$("csv").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f) return;
+  $("importMsg").innerHTML = "Reading…";
+  try {
+    const { records, report } = importPokeGenie(await f.text());
+    myStore.save(records, report);
+    $("importMsg").innerHTML = `<span class="ok">Imported ${n(report.kept)} Pokémon.</span>`;
+  } catch (err) {
+    $("importMsg").innerHTML = `<span class="err">${esc(err.message)}</span>`;
+  }
+  e.target.value = "";
+  drawSummary(); drawHidden();
+});
+
+$("cutoff").value = String(myStore.cutoffDays());
+$("cutoff").addEventListener("change", e => { myStore.setCutoffDays(+e.target.value); drawSummary(); });
+
+$("hidden").addEventListener("click", e => {
+  const h = myStore.hidden();
+  if (e.target.id === "unhideAll") h.clear();
+  else if (e.target.dataset.unhide) h.delete(e.target.dataset.unhide);
+  else return;
+  myStore.setHidden(h); drawHidden(); drawSummary();
+});
+
+$("export").addEventListener("click", () => {
+  if (!myStore.load()) { $("backupMsg").textContent = "Nothing to back up yet."; return; }
+  const blob = new Blob([myStore.exportBackup()], { type: "application/json" });
+  const a = Object.assign(document.createElement("a"), {
+    href: URL.createObjectURL(blob), download: `go-tools-backup-${new Date().toISOString().slice(0, 10)}.json` });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$("backup").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { myStore.importBackup(await f.text()); $("backupMsg").innerHTML = `<span class="ok">Backup loaded.</span>`; }
+  catch (err) { $("backupMsg").innerHTML = `<span class="err">${esc(err.message)}</span>`; }
+  e.target.value = "";
+  $("cutoff").value = String(myStore.cutoffDays());
+  drawSummary(); drawHidden();
+});
+$("clear").addEventListener("click", () => {
+  if (!confirm("Delete your imported Pokémon and hidden list from this device? This can't be undone.")) return;
+  myStore.clear(); myStore.setHidden(new Set());
+  drawSummary(); drawHidden();
+});
+
+drawSummary(); drawHidden();
+</script>
+</body>
+</html>
